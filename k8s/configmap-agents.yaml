@@ -1,0 +1,12 @@
+# ConfigMap with agent configs. From repo root:
+#   kubectl create configmap ennui-agents-config --from-file=agents=agents --dry-run=client -o yaml > ennui-agents-core/k8s/configmap-agents.yaml
+# Then kubectl apply -f ennui-agents-core/k8s/configmap-agents.yaml
+# Deployment mounts at /app/config/agents so CONFIG_DIR/agents/<id>/config.json is available.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ennui-agents-config
+  labels:
+    app: ennui-agents-core
+data: {}
+# Populate with the kubectl create configmap command above.

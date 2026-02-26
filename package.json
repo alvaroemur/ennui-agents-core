@@ -1,0 +1,27 @@
+{
+  "name": "@ennui-agents/core",
+  "version": "0.1.0",
+  "description": "Core: runtimes, LLM API, config, auth, persistence, HTTP API. Usable as package or via API.",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "ennui-agents": "bin/cli.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./auth": "./src/auth/index.js",
+    "./persistence": "./src/persistence/index.js",
+    "./llm": "./src/llm.js",
+    "./config": "./src/config-loader.js"
+  },
+  "scripts": {
+    "start": "node src/api/server.js",
+    "dev": "CONFIG_DIR=${CONFIG_DIR:-.} node src/api/server.js",
+    "switchboard": "node switchboard/src/index.js",
+    "switchboard:dev": "cd switchboard && npm run dev"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.0"
+  }
+}

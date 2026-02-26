@@ -1,0 +1,14 @@
+{
+  "name": "switchboard",
+  "version": "1.0.0",
+  "description": "Switchboard: proxy /api/chat por cliente, API de registro, centro de control. Conecta peticiones con el deployment correcto.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "REGISTRY_PATH=${REGISTRY_PATH:-./data/registry.json} node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
