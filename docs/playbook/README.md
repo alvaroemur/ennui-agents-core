@@ -27,6 +27,7 @@ docs/playbook/
 - Estado global y decisiones: `docs/playbook/state.md`
 - Avance historico: `docs/playbook/avance.md`
 - Arquitectura consolidada (`core + switchboard`): `docs/playbook/architecture.md`
+- Contrato publico v1 de `core/*`: `docs/playbook/core-contract-v1.md`
 - Integracion tecnica para cambios en `gateway` (BFF v2): `docs/playbook/gateway-bff-integration-v2.md`
 - Plan de acceso JWT para `gateway` frontend-only: `docs/playbook/frontend-gateway-jwt-access-plan.md`
 - Runbook de rotacion segura de `core-keys`: `docs/playbook/core-keys-rotation-runbook.md`

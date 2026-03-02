@@ -1,341 +1,89 @@
 {
   "accounts": [
     {
-      "id": "gateway",
-      "name": "Gateway",
-      "slug": "gateway",
-      "role": "operador-cuenta",
+      "id": "inspiro-agents",
+      "name": "Inspiro Agents",
+      "slug": "inspiro-agents",
       "status": "active"
-    },
+    }
+  ],
+  "tenants": [
     {
       "id": "aliantza",
+      "accountId": "inspiro-agents",
       "name": "Aliantza",
       "slug": "aliantza",
-      "role": "operador-cuenta",
-      "status": "active",
-      "workspaceId": "gateway"
-    },
-    {
-      "id": "inspiro-comercial",
-      "name": "Inspiro Comercial",
-      "slug": "comercial",
-      "role": "operador-cuenta",
       "status": "active"
     },
     {
-      "id": "platform",
-      "name": "Platform Admin",
-      "role": "admin-tecnico",
+      "id": "inspiro-agents-web",
+      "accountId": "inspiro-agents",
+      "name": "Inspiro Agents Web",
+      "slug": "inspiro-agents-web",
       "status": "active"
     }
   ],
   "agents": [
     {
+      "id": "aliantza-compras",
+      "type": "chat",
+      "name": "Aliantza-Compras"
+    },
+    {
       "id": "consultor-ia",
       "type": "chat",
-      "configRef": "agents/consultor-ia/config.json",
       "name": "Consultor IA"
     },
     {
       "id": "roi-calculator",
       "type": "collector",
-      "configRef": "agents/roi-calculator/config.json",
       "name": "Calculadora ROI"
     },
     {
       "id": "readiness-evaluator",
       "type": "collector",
-      "configRef": "agents/readiness-evaluator/config.json",
       "name": "Evaluación Readiness"
+    },
+    {
+      "id": "support-bot",
+      "type": "chat",
+      "name": "Support Bot"
     }
   ],
   "deployments": [
     {
-      "id": "gateway-inspiro-agents",
-      "name": "Inspiro Agents Gateway",
+      "id": "core-local",
+      "name": "Core Local",
       "baseUrl": "http://localhost:3000",
-      "versionTag": "staging"
+      "versionTag": "dev"
     }
   ],
   "assignments": [
     {
-      "accountId": "inspiro-comercial",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "deploymentId": "core-local"
+    },
+    {
+      "tenantId": "inspiro-agents-web",
       "agentId": "consultor-ia",
-      "deploymentId": "gateway-inspiro-agents"
+      "deploymentId": "core-local"
     },
     {
-      "accountId": "inspiro-comercial",
+      "tenantId": "inspiro-agents-web",
       "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents"
+      "deploymentId": "core-local"
     },
     {
-      "accountId": "inspiro-comercial",
+      "tenantId": "inspiro-agents-web",
       "agentId": "readiness-evaluator",
-      "deploymentId": "gateway-inspiro-agents"
+      "deploymentId": "core-local"
+    },
+    {
+      "tenantId": "inspiro-agents-web",
+      "agentId": "support-bot",
+      "deploymentId": "core-local"
     }
   ],
-  "runs": [
-    {
-      "runId": "run_bb01e5909a344ae995197d1b4297b877",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T09:02:56.212Z",
-      "finishedAt": "2026-03-01T09:02:59.461Z",
-      "durationMs": 3249,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1266,
-        "outputTokens": 45
-      },
-      "error": null
-    },
-    {
-      "runId": "run_690f569abfec4a4fb67408de7398c791",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T09:35:29.375Z",
-      "finishedAt": "2026-03-01T09:35:30.732Z",
-      "durationMs": 1357,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1257,
-        "outputTokens": 20
-      },
-      "error": null
-    },
-    {
-      "runId": "run_826c4c833e9b46beb8cd9bac56ff0f7c",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T09:36:20.655Z",
-      "finishedAt": "2026-03-01T09:36:21.486Z",
-      "durationMs": 831,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1261,
-        "outputTokens": 19
-      },
-      "error": null
-    },
-    {
-      "runId": "run_e3ad8b49af0c41c88f40ec51b122c685",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T09:38:36.984Z",
-      "finishedAt": "2026-03-01T09:38:39.085Z",
-      "durationMs": 2101,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1253,
-        "outputTokens": 23
-      },
-      "error": null
-    },
-    {
-      "runId": "run_eb07d43bf2434df5b8173d7cbe10c16b",
-      "accountId": "platform",
-      "agentId": "roi-calculator",
-      "deploymentId": null,
-      "status": "error",
-      "startedAt": "2026-03-01T23:41:03.100Z",
-      "finishedAt": "2026-03-01T23:41:03.101Z",
-      "durationMs": 1,
-      "provider": null,
-      "usage": null,
-      "error": {
-        "code": "FORBIDDEN_ACCOUNT_ACCESS",
-        "message": "Forbidden",
-        "detail": "Insufficient permissions for this accountId",
-        "statusCode": 403
-      }
-    },
-    {
-      "runId": "run_07dc9ecde09a45d59221162d7158d5b4",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:41:03.108Z",
-      "finishedAt": "2026-03-01T23:41:05.366Z",
-      "durationMs": 2258,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1254,
-        "outputTokens": 15
-      },
-      "error": null
-    },
-    {
-      "runId": "run_a87d279a58594c93a33c7d60078be400",
-      "accountId": "platform",
-      "agentId": "roi-calculator",
-      "deploymentId": null,
-      "status": "error",
-      "startedAt": "2026-03-01T23:42:09.821Z",
-      "finishedAt": "2026-03-01T23:42:09.822Z",
-      "durationMs": 1,
-      "provider": null,
-      "usage": null,
-      "error": {
-        "code": "FORBIDDEN_ACCOUNT_ACCESS",
-        "message": "Forbidden",
-        "detail": "Insufficient permissions for this accountId",
-        "statusCode": 403
-      }
-    },
-    {
-      "runId": "run_ddf3f16aebb049559186ba44ef4cf220",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:42:09.831Z",
-      "finishedAt": "2026-03-01T23:42:11.256Z",
-      "durationMs": 1425,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1255,
-        "outputTokens": 16
-      },
-      "error": null
-    },
-    {
-      "runId": "run_7e4449d0cad142a49df5c6dcfb76ff08",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:45:02.128Z",
-      "finishedAt": "2026-03-01T23:45:04.123Z",
-      "durationMs": 1995,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1247,
-        "outputTokens": 21
-      },
-      "error": null
-    },
-    {
-      "runId": "run_7f0cc49e272242ce9308d4bde074091b",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:45:04.137Z",
-      "finishedAt": "2026-03-01T23:45:05.964Z",
-      "durationMs": 1827,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1250,
-        "outputTokens": 17
-      },
-      "error": null
-    },
-    {
-      "runId": "run_5973a22e468a4d1abbc98f21a62c64de",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:45:05.976Z",
-      "finishedAt": "2026-03-01T23:45:06.975Z",
-      "durationMs": 999,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1252,
-        "outputTokens": 21
-      },
-      "error": null
-    },
-    {
-      "runId": "run_b6eaf93c62594484967c748c7134ff74",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:45:15.694Z",
-      "finishedAt": "2026-03-01T23:45:17.357Z",
-      "durationMs": 1663,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1255,
-        "outputTokens": 21
-      },
-      "error": null
-    },
-    {
-      "runId": "run_fa3e48e13dbb4c5f827df819b568a9e4",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:45:17.369Z",
-      "finishedAt": "2026-03-01T23:45:18.618Z",
-      "durationMs": 1249,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1250,
-        "outputTokens": 20
-      },
-      "error": null
-    },
-    {
-      "runId": "run_8a08807895804450a0704d94b12b33f3",
-      "accountId": "platform",
-      "agentId": "roi-calculator",
-      "deploymentId": null,
-      "status": "error",
-      "startedAt": "2026-03-01T23:45:18.627Z",
-      "finishedAt": "2026-03-01T23:45:18.628Z",
-      "durationMs": 1,
-      "provider": null,
-      "usage": null,
-      "error": {
-        "code": "FORBIDDEN_ACCOUNT_ACCESS",
-        "message": "Forbidden",
-        "detail": "Insufficient permissions for this accountId",
-        "statusCode": 403
-      }
-    },
-    {
-      "runId": "run_7beb9e391309478d984b86a95599ed7a",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:46:11.816Z",
-      "finishedAt": "2026-03-01T23:46:14.469Z",
-      "durationMs": 2653,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1252,
-        "outputTokens": 12
-      },
-      "error": null
-    },
-    {
-      "runId": "run_55db5b9a585b47a9a4edad2135be9b9f",
-      "accountId": "inspiro-comercial",
-      "agentId": "roi-calculator",
-      "deploymentId": "gateway-inspiro-agents",
-      "status": "success",
-      "startedAt": "2026-03-01T23:51:05.616Z",
-      "finishedAt": "2026-03-01T23:51:07.569Z",
-      "durationMs": 1953,
-      "provider": "openai",
-      "usage": {
-        "inputTokens": 1259,
-        "outputTokens": 18
-      },
-      "error": null
-    }
-  ]
+  "runs": []
 }

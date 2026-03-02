@@ -56,15 +56,11 @@ Nota de resiliencia:
 Nota de auth:
 
 - Cuando RBAC esta activo, se acepta:
-  - `Authorization: Bearer <google-id-token>` para usuarios de `gateway` (modo simple recomendado).
-    - `SWITCHBOARD_AUTH_GOOGLE_ENABLED=true`
-    - `SWITCHBOARD_AUTH_GOOGLE_CLIENT_ID=<google-client-id>`
-    - `SWITCHBOARD_ADMIN_EMAILS=email1,email2`
-  - `Authorization: Bearer <core-key>` o `X-API-Key` (M2M legacy).
+  - `Authorization: Bearer <core-key>` o `X-API-Key` (M2M).
   - `Authorization: Bearer <user-jwt>` si JWT auth está habilitado.
 - Variables para JWT de usuario:
   - `SWITCHBOARD_AUTH_JWT_ENABLED=true`
-  - `SWITCHBOARD_AUTH_JWT_SECRET` (o fallback `CORE_AUTH_JWT_SECRET`)
+  - `SWITCHBOARD_AUTH_JWT_SECRET`
   - `SWITCHBOARD_AUTH_JWT_ISSUER` (opcional)
   - `SWITCHBOARD_AUTH_JWT_AUDIENCE` (opcional)
 

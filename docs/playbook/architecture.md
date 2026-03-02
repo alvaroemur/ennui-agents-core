@@ -226,6 +226,7 @@ flowchart LR
 
 - `docs/playbook/avance.md`
 - `docs/playbook/state.md`
+- `docs/playbook/core-contract-v1.md`
 - `docs/playbook/gateway-bff-integration-v2.md`
 - `docs/playbook/frontend-gateway-jwt-access-plan.md`
 - `docs/playbook/core-keys-rotation-runbook.md`

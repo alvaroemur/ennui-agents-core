@@ -28,8 +28,8 @@ const DATABASE_URL = String(
  * @property {object|null} error
  */
 
-/** @type {{ accounts: object[], agents: object[], deployments: object[], assignments: object[], runs: RunRecord[] }} */
-let store = { accounts: [], agents: [], deployments: [], assignments: [], runs: [] };
+/** @type {{ accounts: object[], tenants: object[], agents: object[], deployments: object[], assignments: object[], runs: RunRecord[] }} */
+let store = { accounts: [], tenants: [], agents: [], deployments: [], assignments: [], runs: [] };
 
 let registryPath = null;
 let sqlClient = null;
@@ -88,6 +88,13 @@ async function ensureSchema() {
         )
     `;
     await sqlClient`
+        CREATE TABLE IF NOT EXISTS switchboard_tenants (
+            id text PRIMARY KEY,
+            account_id text NOT NULL,
+            data jsonb NOT NULL
+        )
+    `;
+    await sqlClient`
         CREATE TABLE IF NOT EXISTS switchboard_agents (
             id text PRIMARY KEY,
             data jsonb NOT NULL
@@ -102,17 +109,18 @@ async function ensureSchema() {
     `;
     await sqlClient`
         CREATE TABLE IF NOT EXISTS switchboard_assignments (
-            account_id text NOT NULL,
+            tenant_id text NOT NULL,
             agent_id text NOT NULL,
             deployment_id text,
             data jsonb NOT NULL,
-            PRIMARY KEY (account_id, agent_id)
+            PRIMARY KEY (tenant_id, agent_id)
         )
     `;
     await sqlClient`
         CREATE TABLE IF NOT EXISTS switchboard_runs (
             run_id text PRIMARY KEY,
             account_id text,
+            tenant_id text,
             agent_id text,
             deployment_id text,
             status text NOT NULL,
@@ -156,6 +164,7 @@ async function writeSnapshotToDb(snapshot) {
     await sqlClient`DELETE FROM switchboard_assignments`;
     await sqlClient`DELETE FROM switchboard_deployments`;
     await sqlClient`DELETE FROM switchboard_agents`;
+    await sqlClient`DELETE FROM switchboard_tenants`;
     await sqlClient`DELETE FROM switchboard_accounts`;
     await sqlClient`DELETE FROM switchboard_runs`;
 
@@ -165,6 +174,15 @@ async function writeSnapshotToDb(snapshot) {
         await sqlClient`
             INSERT INTO switchboard_accounts (id, data)
             VALUES (${String(normalized.id)}, ${toDbJson(normalized)}::jsonb)
+        `;
+    }
+    for (const tenant of snapshot.tenants || []) {
+        const normalized = normalizeBasicRecord(tenant);
+        if (!normalized?.id) continue;
+        const accountId = normalized.accountId != null ? String(normalized.accountId) : "";
+        await sqlClient`
+            INSERT INTO switchboard_tenants (id, account_id, data)
+            VALUES (${String(normalized.id)}, ${accountId}, ${toDbJson(normalized)}::jsonb)
         `;
     }
     for (const agent of snapshot.agents || []) {
@@ -186,13 +204,13 @@ async function writeSnapshotToDb(snapshot) {
     }
     for (const assignment of snapshot.assignments || []) {
         const normalized = normalizeBasicRecord(assignment);
-        const accountId = normalized?.accountId != null ? String(normalized.accountId) : "";
+        const tenantId = normalized?.tenantId != null ? String(normalized.tenantId) : "";
         const agentId = normalized?.agentId != null ? String(normalized.agentId) : "";
-        if (!accountId || !agentId) continue;
+        if (!tenantId || !agentId) continue;
         const deploymentId = normalized.deploymentId != null ? String(normalized.deploymentId) : null;
         await sqlClient`
-            INSERT INTO switchboard_assignments (account_id, agent_id, deployment_id, data)
-            VALUES (${accountId}, ${agentId}, ${deploymentId}, ${toDbJson(normalized)}::jsonb)
+            INSERT INTO switchboard_assignments (tenant_id, agent_id, deployment_id, data)
+            VALUES (${tenantId}, ${agentId}, ${deploymentId}, ${toDbJson(normalized)}::jsonb)
         `;
     }
     for (const run of snapshot.runs || []) {
@@ -203,15 +221,17 @@ async function writeSnapshotToDb(snapshot) {
 }
 
 async function readSnapshotFromDb() {
-    const [accountsRows, agentsRows, deploymentsRows, assignmentsRows, runsRows] = await Promise.all([
+    const [accountsRows, tenantsRows, agentsRows, deploymentsRows, assignmentsRows, runsRows] = await Promise.all([
         sqlClient`SELECT data FROM switchboard_accounts ORDER BY id`,
+        sqlClient`SELECT data FROM switchboard_tenants ORDER BY id`,
         sqlClient`SELECT data FROM switchboard_agents ORDER BY id`,
         sqlClient`SELECT data FROM switchboard_deployments ORDER BY id`,
-        sqlClient`SELECT data FROM switchboard_assignments ORDER BY account_id, agent_id`,
+        sqlClient`SELECT data FROM switchboard_assignments ORDER BY tenant_id, agent_id`,
         sqlClient`SELECT data FROM switchboard_runs ORDER BY started_at DESC`,
     ]);
     return {
         accounts: accountsRows.map((r) => parseDbJson(r.data)).filter(Boolean),
+        tenants: tenantsRows.map((r) => parseDbJson(r.data)).filter(Boolean),
         agents: agentsRows.map((r) => parseDbJson(r.data)).filter(Boolean),
         deployments: deploymentsRows.map((r) => parseDbJson(r.data)).filter(Boolean),
         assignments: assignmentsRows.map((r) => parseDbJson(r.data)).filter(Boolean),
@@ -223,6 +243,7 @@ async function maybeSeedDbFromJson(path) {
     const rows = await sqlClient`
         SELECT
             (SELECT COUNT(*)::int FROM switchboard_accounts) AS accounts_count,
+            (SELECT COUNT(*)::int FROM switchboard_tenants) AS tenants_count,
             (SELECT COUNT(*)::int FROM switchboard_agents) AS agents_count,
             (SELECT COUNT(*)::int FROM switchboard_deployments) AS deployments_count,
             (SELECT COUNT(*)::int FROM switchboard_assignments) AS assignments_count,
@@ -231,6 +252,7 @@ async function maybeSeedDbFromJson(path) {
     const info = rows?.[0] || {};
     const total =
         Number(info.accounts_count || 0) +
+        Number(info.tenants_count || 0) +
         Number(info.agents_count || 0) +
         Number(info.deployments_count || 0) +
         Number(info.assignments_count || 0) +
@@ -241,6 +263,7 @@ async function maybeSeedDbFromJson(path) {
         const data = JSON.parse(raw);
         const seed = {
             accounts: Array.isArray(data.accounts) ? data.accounts : [],
+            tenants: Array.isArray(data.tenants) ? data.tenants : [],
             agents: Array.isArray(data.agents) ? data.agents : [],
             deployments: Array.isArray(data.deployments) ? data.deployments : [],
             assignments: Array.isArray(data.assignments) ? data.assignments : [],
@@ -282,6 +305,7 @@ export async function loadRegistry(path = registryPath) {
         const data = JSON.parse(raw);
         store = {
             accounts: Array.isArray(data.accounts) ? data.accounts : [],
+            tenants: Array.isArray(data.tenants) ? data.tenants : [],
             agents: data.agents || [],
             deployments: data.deployments || [],
             assignments: data.assignments || [],
@@ -340,6 +364,7 @@ function normalizeRun(record) {
     return {
         runId: String(record.runId),
         accountId: record.accountId ? String(record.accountId) : null,
+        tenantId: record.tenantId ? String(record.tenantId) : null,
         agentId: record.agentId ? String(record.agentId) : null,
         deploymentId: record.deploymentId ? String(record.deploymentId) : null,
         status: record.status === "success" || record.status === "error" ? record.status : "running",
@@ -368,12 +393,12 @@ function calcDurationMs(startedAt, finishedAt) {
     return Math.max(0, end - start);
 }
 
-export async function findAssignment(accountId, agentId) {
+export async function findAssignment(tenantId, agentId) {
     if (await ensureDbReady()) {
-        return getAssignment(accountId, agentId);
+        return getAssignment(tenantId, agentId);
     }
     return store.assignments.find(
-        (a) => a.accountId === accountId && a.agentId === agentId
+        (a) => a.tenantId === tenantId && a.agentId === agentId
     );
 }
 
@@ -384,8 +409,8 @@ export async function findDeployment(id) {
     return store.deployments.find((d) => d.id === id);
 }
 
-export async function resolveEndpoint(accountId, agentId) {
-    const assignment = await findAssignment(accountId, agentId);
+export async function resolveEndpoint(tenantId, agentId) {
+    const assignment = await findAssignment(tenantId, agentId);
     if (!assignment) return null;
     const deployment = await findDeployment(assignment.deploymentId);
     if (!deployment) return null;
@@ -411,6 +436,28 @@ export async function getAccount(id) {
         return rows.length ? parseDbJson(rows[0].data) : undefined;
     }
     return store.accounts.find((a) => a.id === id);
+}
+export async function listTenants(accountId = null) {
+    if (await ensureDbReady()) {
+        const rows = accountId
+            ? await sqlClient`SELECT data FROM switchboard_tenants WHERE account_id = ${String(accountId)} ORDER BY id`
+            : await sqlClient`SELECT data FROM switchboard_tenants ORDER BY id`;
+        return rows.map((r) => parseDbJson(r.data)).filter(Boolean);
+    }
+    if (accountId) return store.tenants.filter((t) => t.accountId === accountId);
+    return store.tenants;
+}
+export async function getTenant(id) {
+    if (await ensureDbReady()) {
+        const rows = await sqlClient`
+            SELECT data
+            FROM switchboard_tenants
+            WHERE id = ${String(id)}
+            LIMIT 1
+        `;
+        return rows.length ? parseDbJson(rows[0].data) : undefined;
+    }
+    return store.tenants.find((t) => t.id === id);
 }
 export async function listAgents() {
     if (await ensureDbReady()) {
@@ -458,33 +505,33 @@ export async function getDeployment(id) {
     }
     return store.deployments.find((d) => d.id === id);
 }
-export async function listAssignments(accountId = null) {
+export async function listAssignments(tenantId = null) {
     if (await ensureDbReady()) {
-        const rows = accountId
+        const rows = tenantId
             ? await sqlClient`
                 SELECT data
                 FROM switchboard_assignments
-                WHERE account_id = ${String(accountId)}
-                ORDER BY account_id, agent_id
+                WHERE tenant_id = ${String(tenantId)}
+                ORDER BY tenant_id, agent_id
             `
-            : await sqlClient`SELECT data FROM switchboard_assignments ORDER BY account_id, agent_id`;
+            : await sqlClient`SELECT data FROM switchboard_assignments ORDER BY tenant_id, agent_id`;
         return rows.map((r) => parseDbJson(r.data)).filter(Boolean);
     }
-    if (accountId) return store.assignments.filter((a) => a.accountId === accountId);
+    if (tenantId) return store.assignments.filter((a) => a.tenantId === tenantId);
     return store.assignments;
 }
-export async function getAssignment(accountId, agentId) {
+export async function getAssignment(tenantId, agentId) {
     if (await ensureDbReady()) {
         const rows = await sqlClient`
             SELECT data
             FROM switchboard_assignments
-            WHERE account_id = ${String(accountId)}
+            WHERE tenant_id = ${String(tenantId)}
               AND agent_id = ${String(agentId)}
             LIMIT 1
         `;
         return rows.length ? parseDbJson(rows[0].data) : undefined;
     }
-    return findAssignment(accountId, agentId);
+    return findAssignment(tenantId, agentId);
 }
 
 export async function createAccount(data) {
@@ -540,6 +587,66 @@ export async function deleteAccount(id) {
     if (i < 0) return false;
     store.accounts.splice(i, 1);
     store.assignments = store.assignments.filter((a) => a.accountId !== id);
+    return true;
+}
+
+export async function createTenant(data) {
+    const id = mustHaveId(data);
+    if (!id) return null;
+    if (await ensureDbReady()) {
+        const payload = { ...data, id };
+        const accountId = payload.accountId != null ? String(payload.accountId) : "";
+        const rows = await sqlClient`
+            INSERT INTO switchboard_tenants (id, account_id, data)
+            VALUES (${id}, ${accountId}, ${toDbJson(payload)}::jsonb)
+            ON CONFLICT (id) DO NOTHING
+            RETURNING data
+        `;
+        return rows.length ? parseDbJson(rows[0].data) : null;
+    }
+    if (await getTenant(id)) return null;
+    store.tenants.push(data);
+    return data;
+}
+export async function updateTenant(id, data) {
+    if (await ensureDbReady()) {
+        const current = await getTenant(id);
+        if (!current) return null;
+        const payload = { ...current, ...data, id: String(id) };
+        const accountId = payload.accountId != null ? String(payload.accountId) : "";
+        await sqlClient`
+            INSERT INTO switchboard_tenants (id, account_id, data)
+            VALUES (${String(id)}, ${accountId}, ${toDbJson(payload)}::jsonb)
+            ON CONFLICT (id) DO UPDATE
+            SET
+                account_id = EXCLUDED.account_id,
+                data = EXCLUDED.data
+        `;
+        return payload;
+    }
+    const i = store.tenants.findIndex((t) => t.id === id);
+    if (i < 0) return null;
+    store.tenants[i] = { ...store.tenants[i], ...data };
+    return store.tenants[i];
+}
+export async function deleteTenant(id) {
+    if (await ensureDbReady()) {
+        const deleted = await sqlClient`
+            DELETE FROM switchboard_tenants
+            WHERE id = ${String(id)}
+            RETURNING id
+        `;
+        if (!deleted.length) return false;
+        await sqlClient`
+            DELETE FROM switchboard_assignments
+            WHERE tenant_id = ${String(id)}
+        `;
+        return true;
+    }
+    const i = store.tenants.findIndex((t) => t.id === id);
+    if (i < 0) return false;
+    store.tenants.splice(i, 1);
+    store.assignments = store.assignments.filter((a) => a.tenantId !== id);
     return true;
 }
 
@@ -660,58 +767,58 @@ export async function deleteDeployment(id) {
 }
 
 export async function createAssignment(data) {
-    const accountId = data?.accountId != null ? String(data.accountId).trim() : "";
+    const tenantId = data?.tenantId != null ? String(data.tenantId).trim() : "";
     const agentId = data?.agentId != null ? String(data.agentId).trim() : "";
-    if (!accountId || !agentId) return null;
+    if (!tenantId || !agentId) return null;
     if (await ensureDbReady()) {
-        const payload = { ...data, accountId, agentId };
+        const payload = { ...data, tenantId, agentId };
         const deploymentId = payload.deploymentId != null ? String(payload.deploymentId) : null;
         const rows = await sqlClient`
-            INSERT INTO switchboard_assignments (account_id, agent_id, deployment_id, data)
-            VALUES (${accountId}, ${agentId}, ${deploymentId}, ${toDbJson(payload)}::jsonb)
-            ON CONFLICT (account_id, agent_id) DO NOTHING
+            INSERT INTO switchboard_assignments (tenant_id, agent_id, deployment_id, data)
+            VALUES (${tenantId}, ${agentId}, ${deploymentId}, ${toDbJson(payload)}::jsonb)
+            ON CONFLICT (tenant_id, agent_id) DO NOTHING
             RETURNING data
         `;
         return rows.length ? parseDbJson(rows[0].data) : null;
     }
-    if (await getAssignment(accountId, agentId)) return null;
-    const payload = { ...data, accountId, agentId };
+    if (await getAssignment(tenantId, agentId)) return null;
+    const payload = { ...data, tenantId, agentId };
     store.assignments.push(payload);
     return payload;
 }
-export async function updateAssignment(accountId, agentId, data) {
+export async function updateAssignment(tenantId, agentId, data) {
     if (await ensureDbReady()) {
-        const current = await getAssignment(accountId, agentId);
+        const current = await getAssignment(tenantId, agentId);
         if (!current) return null;
-        const payload = { ...current, ...data, accountId: String(accountId), agentId: String(agentId) };
+        const payload = { ...current, ...data, tenantId: String(tenantId), agentId: String(agentId) };
         const deploymentId = payload.deploymentId != null ? String(payload.deploymentId) : null;
         await sqlClient`
-            INSERT INTO switchboard_assignments (account_id, agent_id, deployment_id, data)
-            VALUES (${String(accountId)}, ${String(agentId)}, ${deploymentId}, ${toDbJson(payload)}::jsonb)
-            ON CONFLICT (account_id, agent_id) DO UPDATE
+            INSERT INTO switchboard_assignments (tenant_id, agent_id, deployment_id, data)
+            VALUES (${String(tenantId)}, ${String(agentId)}, ${deploymentId}, ${toDbJson(payload)}::jsonb)
+            ON CONFLICT (tenant_id, agent_id) DO UPDATE
             SET
                 deployment_id = EXCLUDED.deployment_id,
                 data = EXCLUDED.data
         `;
         return payload;
     }
-    const a = await findAssignment(accountId, agentId);
+    const a = await findAssignment(tenantId, agentId);
     if (!a) return null;
     if (data.deploymentId !== undefined) a.deploymentId = data.deploymentId;
     return a;
 }
-export async function deleteAssignment(accountId, agentId) {
+export async function deleteAssignment(tenantId, agentId) {
     if (await ensureDbReady()) {
         const deleted = await sqlClient`
             DELETE FROM switchboard_assignments
-            WHERE account_id = ${String(accountId)}
+            WHERE tenant_id = ${String(tenantId)}
               AND agent_id = ${String(agentId)}
-            RETURNING account_id
+            RETURNING tenant_id
         `;
         return deleted.length > 0;
     }
     const i = store.assignments.findIndex(
-        (a) => a.accountId === accountId && a.agentId === agentId
+        (a) => a.tenantId === tenantId && a.agentId === agentId
     );
     if (i < 0) return false;
     store.assignments.splice(i, 1);
@@ -736,6 +843,7 @@ async function upsertRunDb(run) {
         INSERT INTO switchboard_runs (
             run_id,
             account_id,
+            tenant_id,
             agent_id,
             deployment_id,
             status,
@@ -750,6 +858,7 @@ async function upsertRunDb(run) {
         VALUES (
             ${run.runId},
             ${run.accountId},
+            ${run.tenantId},
             ${run.agentId},
             ${run.deploymentId},
             ${run.status},
@@ -764,6 +873,7 @@ async function upsertRunDb(run) {
         ON CONFLICT (run_id) DO UPDATE
         SET
             account_id = EXCLUDED.account_id,
+            tenant_id = EXCLUDED.tenant_id,
             agent_id = EXCLUDED.agent_id,
             deployment_id = EXCLUDED.deployment_id,
             status = EXCLUDED.status,
@@ -860,6 +970,10 @@ export async function listRuns(filters = {}) {
             typeof filters.accountId === "string" && filters.accountId.trim()
                 ? filters.accountId.trim()
                 : null,
+        tenantId:
+            typeof filters.tenantId === "string" && filters.tenantId.trim()
+                ? filters.tenantId.trim()
+                : null,
         agentId: typeof filters.agentId === "string" && filters.agentId.trim() ? filters.agentId.trim() : null,
         deploymentId:
             typeof filters.deploymentId === "string" && filters.deploymentId.trim()
@@ -888,6 +1002,9 @@ export async function listRuns(filters = {}) {
     }
     if (normalizedFilters.accountId) {
         items = items.filter((r) => r.accountId === normalizedFilters.accountId);
+    }
+    if (normalizedFilters.tenantId) {
+        items = items.filter((r) => r.tenantId === normalizedFilters.tenantId);
     }
     if (normalizedFilters.agentId) items = items.filter((r) => r.agentId === normalizedFilters.agentId);
     if (normalizedFilters.deploymentId) items = items.filter((r) => r.deploymentId === normalizedFilters.deploymentId);

@@ -118,3 +118,44 @@
   - Se registra migracion por fases (authn dual temporal, RBAC por claims, retiro de `core-key` del frontend).
 - Se crea feature `F-202603-08-switchboard-jwt-user-auth-frontend-gateway` y pasa a `candidate`.
 - Se actualizan `state.md`, `architecture.md` y `README.md` para reflejar la nueva direccion frontend-only.
+- Ideate: se valida direccion de simplificacion arquitectonica para operar con cara publica unica `core`.
+  - `tenant` se fija como entidad separada del dominio.
+  - La API publica canonica se define bajo `core/*` con pocos contratos y endpoint relay/proxy para cliente <-> agente con monitoreo y masking.
+  - El seed inicial operara con agentes mock (incluyendo `Aliantza-Compras`) hasta conectar integraciones reales por HTTP.
+- Se crea `F-202603-09-core-api-publica-unificada-relay` en estado `inbox`.
+- Se actualiza `state.md` para registrar la nueva decision activa de unificacion publica bajo `core` y backlog asociado.
+- Limpieza de legacy en runtime y configuracion para alinear con diseno de `core` unificado:
+  - se retira compatibilidad de ruta `POST /agent-chat` (queda solo `POST /api/chat` en `src/api/server.js`),
+  - se elimina `X-Client-Id` de CORS en servidores core,
+  - `switchboard/src/rbac.js` elimina auth Google directa y fallbacks a `CORE_AUTH_*`; auth interna queda en `core-key`/`user-jwt`.
+  - se elimina `src/serve.js` por ser servidor legacy duplicado sin referencias activas.
+- Se simplifican variables de entorno de control plane:
+  - `.env` y `.env.example` eliminan bloque `SWITCHBOARD_AUTH_GOOGLE_*` y operadores legacy.
+- Se actualiza documentacion para reflejar limpieza:
+  - `README.md` quita alias legacy `POST /agent-chat`,
+  - `switchboard/README.md` actualiza modelo de auth sin modo Google directo.
+- Validacion tecnica post-limpieza:
+  - `npm --prefix switchboard test` OK (15/15),
+  - `node --check` OK en `src/api/server.js` y `switchboard/src/rbac.js`.
+- Se materializa el blueprint v1 de `F-202603-09-core-api-publica-unificada-relay` y la feature pasa a `candidate`.
+  - Se fija dominio canonico con `tenant` como entidad separada y relaciones de `workspace/tenant/agent/assignment/run/user/membership`.
+  - Se define contrato publico minimo en `core/*` con endpoint canonico `POST /core/relay/chat`.
+  - Se acuerda retiro legacy inmediato (sin fase dual de compatibilidad) por no existir consumidores implementados en rutas legacy.
+  - Se mantiene seed inicial con agentes mock para acelerar validacion funcional antes de conexiones reales.
+- Se crea `docs/playbook/core-contract-v1.md` como artefacto de contrato HTTP publico para ejecucion de `F-202603-09`.
+  - Incluye endpoints canonicos `core/*`, payload minimo de `POST /core/relay/chat`, modelo de errores y alcance de la siguiente sesion.
+- Se promueve `F-202603-09-core-api-publica-unificada-relay` de `candidate` a `validated` y luego a `ready`.
+  - Criterio de `validated`: contrato v1 documentado y aceptado.
+  - Criterio de `ready`: orden de ejecucion cerrado para iniciar `in_progress` en la proxima sesion.
+- Se actualiza `state.md` para dejar `F-202603-09` en plan activo con instruccion explicita de arranque.
+
+## 2026-03-02
+
+- Se inicia ejecucion de `F-202603-09-core-api-publica-unificada-relay`.
+- Se implementan rutas publicas `core/*` en `src/api/server.js` (health, me, workspaces, tenants, agents, runs) consumiendo `switchboard/src/registry.js` internamente.
+- Se implementa `POST /core/relay/chat` en `core` con resolucion `tenant + agent -> deployment` y proxy a runtime.
+- Se adapta `switchboard/src/registry.js` para soportar entidad `tenants` y se migra `assignments` a clave `tenantId, agentId`.
+- Se actualizan tests de RBAC para usar `allowedWorkspaces` en lugar de `allowedAccounts`.
+- Se conecta seed mock en persistencia activa (`switchboard/data/registry.json`) con `Inspiro Agents`, tenants `Aliantza` y `Inspiro Agents Web`, y 5 agentes mock.
+- Se elimina `POST /api/chat` de `switchboard/src/index.js` (proxy legacy retirado de forma inmediata).
+- Se cierra `F-202603-09-core-api-publica-unificada-relay` en estado `done`.

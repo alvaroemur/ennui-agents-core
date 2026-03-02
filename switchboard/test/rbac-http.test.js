@@ -137,21 +137,3 @@ test("GET /api/runs rejects legacy query param clientId", async () => {
     assert.match(payload.error, /Legacy query param/i);
 });
 
-test("POST /api/chat rejects legacy clientId body and returns run header", async () => {
-    const response = await fetch(`${runtime.baseUrl}/api/chat`, {
-        method: "POST",
-        headers: {
-            Authorization: "Bearer op-key",
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-            clientId: "inspiro-comercial",
-            agentId: "consultor-ia",
-            messages: [{ role: "user", parts: [{ text: "hola" }] }],
-        }),
-    });
-    assert.equal(response.status, 400);
-    assert.ok(response.headers.get("x-run-id"));
-    const payload = await response.json();
-    assert.match(payload.error, /Legacy clientId/i);
-});

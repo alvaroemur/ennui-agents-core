@@ -16,7 +16,6 @@ import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 
 const VALID_ROLES = new Set(["admin-tecnico", "operador-cuenta", "lector-cuenta"]);
-const GOOGLE_ISSUERS = new Set(["accounts.google.com", "https://accounts.google.com"]);
 const DEFAULT_KEYS_PATH = resolve(
     dirname(fileURLToPath(import.meta.url)),
     "..",
@@ -31,18 +30,6 @@ function parseBool(value, fallback = false) {
     if (["1", "true", "yes", "on"].includes(raw)) return true;
     if (["0", "false", "no", "off"].includes(raw)) return false;
     return fallback;
-}
-
-function parseCsv(value) {
-    if (typeof value !== "string") return [];
-    return value
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-}
-
-function normalizeEmail(value) {
-    return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
 function normalizeCoreKeyEntry(entry) {
@@ -107,54 +94,6 @@ function getBearerKey(req) {
     return "";
 }
 
-function isGoogleAuthEnabled() {
-    return parseBool(process.env.SWITCHBOARD_AUTH_GOOGLE_ENABLED, false);
-}
-
-function getGoogleClientId() {
-    const explicit = typeof process.env.SWITCHBOARD_AUTH_GOOGLE_CLIENT_ID === "string"
-        ? process.env.SWITCHBOARD_AUTH_GOOGLE_CLIENT_ID.trim()
-        : "";
-    if (explicit) return explicit;
-    const fallback = typeof process.env.GOOGLE_CLIENT_ID === "string"
-        ? process.env.GOOGLE_CLIENT_ID.trim()
-        : "";
-    if (fallback) return fallback;
-    const coreFallback = typeof process.env.CORE_AUTH_GOOGLE_CLIENT_ID === "string"
-        ? process.env.CORE_AUTH_GOOGLE_CLIENT_ID.trim()
-        : "";
-    return coreFallback || "";
-}
-
-function getGoogleAdminEmails() {
-    return parseCsv(process.env.SWITCHBOARD_ADMIN_EMAILS).map((item) => normalizeEmail(item));
-}
-
-/**
- * Parses SWITCHBOARD_GOOGLE_OPERADORES (e.g. "alvaro@inspiro:gateway,other@corp:other-acc").
- * Returns array of { email, accountId }.
- */
-function getGoogleOperadores() {
-    const raw = typeof process.env.SWITCHBOARD_GOOGLE_OPERADORES === "string"
-        ? process.env.SWITCHBOARD_GOOGLE_OPERADORES.trim()
-        : "";
-    if (!raw) return [];
-    const entries = raw.split(",").map((s) => s.trim()).filter(Boolean);
-    const result = [];
-    for (const entry of entries) {
-        const idx = entry.indexOf(":");
-        if (idx <= 0) continue;
-        const email = normalizeEmail(entry.slice(0, idx));
-        const accountId = entry.slice(idx + 1).trim();
-        if (email && accountId) result.push({ email, accountId });
-    }
-    return result;
-}
-
-function getGoogleAllowedDomains() {
-    return parseCsv(process.env.SWITCHBOARD_AUTH_GOOGLE_ALLOWED_HOSTED_DOMAINS).map((item) => item.toLowerCase());
-}
-
 function isJwtEnabled() {
     return parseBool(process.env.SWITCHBOARD_AUTH_JWT_ENABLED, false);
 }
@@ -163,11 +102,7 @@ function getJwtSecret() {
     const configured = typeof process.env.SWITCHBOARD_AUTH_JWT_SECRET === "string"
         ? process.env.SWITCHBOARD_AUTH_JWT_SECRET.trim()
         : "";
-    if (configured) return configured;
-    const fallback = typeof process.env.CORE_AUTH_JWT_SECRET === "string"
-        ? process.env.CORE_AUTH_JWT_SECRET.trim()
-        : "";
-    return fallback || "";
+    return configured || "";
 }
 
 function getJwtIssuer() {
@@ -198,14 +133,6 @@ function parseJsonBase64Url(value) {
     }
 }
 
-function looksLikeGoogleJwt(token) {
-    const parts = token.split(".");
-    if (parts.length !== 3) return false;
-    const payload = parseJsonBase64Url(parts[1]);
-    const issuer = typeof payload?.iss === "string" ? payload.iss.trim() : "";
-    return GOOGLE_ISSUERS.has(issuer);
-}
-
 function verifyJwtHs256(token, secret) {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
@@ -227,23 +154,6 @@ function verifyJwtHs256(token, secret) {
     if (provided.length !== expected.length) return null;
     if (!timingSafeEqual(provided, expected)) return null;
     return payload;
-}
-
-async function fetchGoogleTokenInfo(idToken) {
-    const query = new URLSearchParams({ id_token: idToken }).toString();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    try {
-        const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?${query}`, {
-            signal: controller.signal,
-        });
-        if (!response.ok) return null;
-        return await response.json();
-    } catch (_) {
-        return null;
-    } finally {
-        clearTimeout(timeout);
-    }
 }
 
 function hasAudience(claim, expectedAudience) {
@@ -273,64 +183,6 @@ function resolveRoleFromClaims(payload) {
     return "";
 }
 
-async function authenticateGooglePrincipal(token) {
-    if (!isGoogleAuthEnabled()) return null;
-    if (!isLikelyJwt(token) || !looksLikeGoogleJwt(token)) return null;
-
-    const clientId = getGoogleClientId();
-    if (!clientId) return null;
-
-    const claims = await fetchGoogleTokenInfo(token);
-    if (!claims || typeof claims !== "object") return null;
-
-    const aud = typeof claims.aud === "string" ? claims.aud.trim() : "";
-    if (!aud || aud !== clientId) return null;
-
-    const issuer = typeof claims.iss === "string" ? claims.iss.trim() : "";
-    if (!GOOGLE_ISSUERS.has(issuer)) return null;
-
-    const exp = Number(claims.exp);
-    const now = Math.floor(Date.now() / 1000);
-    if (!Number.isFinite(exp) || exp <= now) return null;
-
-    const email = normalizeEmail(claims.email);
-    const emailVerified = claims.email_verified === true || String(claims.email_verified).toLowerCase() === "true";
-    if (!email || !emailVerified) return null;
-
-    const allowedDomains = getGoogleAllowedDomains();
-    if (allowedDomains.length > 0) {
-        const hostedDomain = typeof claims.hd === "string" ? claims.hd.trim().toLowerCase() : "";
-        if (!hostedDomain || !allowedDomains.includes(hostedDomain)) return null;
-    }
-
-    const adminEmails = getGoogleAdminEmails();
-    if (adminEmails.includes(email)) {
-        return {
-            role: "admin-tecnico",
-            accountId: null,
-            subject: email,
-            keyId: null,
-            keyLabel: "google-user",
-            allowedAccounts: [],
-        };
-    }
-
-    const operadores = getGoogleOperadores();
-    const operadorEntry = operadores.find((o) => o.email === email);
-    if (operadorEntry) {
-        return {
-            role: "operador-cuenta",
-            accountId: operadorEntry.accountId,
-            subject: email,
-            keyId: null,
-            keyLabel: "google-user",
-            allowedAccounts: [operadorEntry.accountId],
-        };
-    }
-
-    return null;
-}
-
 function authenticateJwtPrincipal(token) {
     if (!isJwtEnabled()) return null;
     if (!isLikelyJwt(token)) return null;
@@ -355,10 +207,10 @@ function authenticateJwtPrincipal(token) {
     const role = resolveRoleFromClaims(payload);
     if (!role) return null;
 
-    const allowedAccounts = normalizeAllowedAccounts(payload?.allowedAccounts);
-    const defaultAccountId = typeof payload?.defaultAccountId === "string"
-        ? payload.defaultAccountId.trim()
-        : "";
+    const allowedAccounts = normalizeAllowedAccounts(payload?.allowedWorkspaces || payload?.allowedAccounts);
+    const defaultAccountId = typeof payload?.defaultWorkspaceId === "string"
+        ? payload.defaultWorkspaceId.trim()
+        : (typeof payload?.defaultAccountId === "string" ? payload.defaultAccountId.trim() : "");
     const scopedAccountId = defaultAccountId || allowedAccounts[0] || null;
 
     return {
@@ -399,14 +251,6 @@ export async function authenticateRequest(req, deps = {}) {
 
     const key = getBearerKey(req);
     if (!key) return { enabled: true, principal: null, reason: "missing-key" };
-
-    const googlePrincipal = await authenticateGooglePrincipal(key);
-    if (googlePrincipal) {
-        return {
-            enabled: true,
-            principal: googlePrincipal,
-        };
-    }
 
     const jwtPrincipal = authenticateJwtPrincipal(key);
     if (jwtPrincipal) {

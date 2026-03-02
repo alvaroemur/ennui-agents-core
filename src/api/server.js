@@ -20,13 +20,25 @@ import {
     toPublicCoreConfig,
     toPublicSubaccountConfig,
 } from "../core-config/index.js";
+import * as reg from "../../switchboard/src/registry.js";
+import { forwardChat } from "../../switchboard/src/proxy.js";
+import { authenticateRequest, canRead, canUseChat, getPrincipalAccountId, isAdmin } from "../../switchboard/src/rbac.js";
+import { randomUUID } from "crypto";
 
 const PORT = Number(process.env.PORT) || 3000;
 const CONFIG_DIR = process.env.CONFIG_DIR || "/app/config";
+const REGISTRY_PATH = process.env.REGISTRY_PATH || "./switchboard/data/registry.json";
+
+reg.setRegistryPath(REGISTRY_PATH);
+try {
+    await reg.loadRegistry();
+} catch (error) {
+    console.warn("Core: failed to load registry, continuing with empty state.", error?.message || String(error));
+}
 
 const CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, X-Client-Id, X-Request-Id, X-API-Key, X-Core-Deploy-Token, Authorization",
+    "Access-Control-Allow-Headers": "Content-Type, X-Request-Id, X-API-Key, X-Core-Deploy-Token, Authorization",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
@@ -53,6 +65,11 @@ const server = http.createServer(async (req, res) => {
 
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
     const path = url.pathname;
+
+    const auth = await authenticateRequest(req, {
+        getAccountById: reg.getAccount,
+    });
+    const principal = auth.principal;
 
     const isPublicAuthPath =
         (req.method === "GET" && path === "/api/auth/google/config") ||
@@ -184,7 +201,7 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    if (req.method === "POST" && (path === "/api/chat" || path === "/agent-chat")) {
+    if (req.method === "POST" && path === "/api/chat") {
         const body = await parseBody(req);
         await handleAgentChat(req, res, {
             body,
@@ -192,6 +209,248 @@ const server = http.createServer(async (req, res) => {
             jsonResponse: (res, code, data, h) => jsonResponse(res, code, data, h),
         });
         return;
+    }
+
+    // --- NEW /core/* ROUTES ---
+    if (path.startsWith("/core/")) {
+        // GET /core/health
+        if (req.method === "GET" && path === "/core/health") {
+            jsonResponse(res, 200, { ok: true });
+            return;
+        }
+
+        // GET /core/me
+        if (req.method === "GET" && path === "/core/me") {
+            if (!principal) {
+                jsonResponse(res, 401, { error: "unauthorized" });
+                return;
+            }
+            jsonResponse(res, 200, {
+                role: principal.role,
+                workspaceId: principal.accountId ?? null,
+                subject: principal.subject ?? null,
+            });
+            return;
+        }
+
+        // GET /core/workspaces
+        if (req.method === "GET" && path === "/core/workspaces") {
+            if (!principal) {
+                jsonResponse(res, 401, { error: "unauthorized" });
+                return;
+            }
+            const accounts = await reg.listAccounts();
+            if (isAdmin(principal)) {
+                jsonResponse(res, 200, accounts);
+                return;
+            }
+            const allowed = accounts.filter(a => canRead(principal, a.id));
+            jsonResponse(res, 200, allowed);
+            return;
+        }
+
+        // GET /core/workspaces/:workspaceId/tenants
+        const tenantsMatch = path.match(/^\/core\/workspaces\/([^/]+)\/tenants$/);
+        if (req.method === "GET" && tenantsMatch) {
+            if (!principal) {
+                jsonResponse(res, 401, { error: "unauthorized" });
+                return;
+            }
+            const workspaceId = tenantsMatch[1];
+            if (!canRead(principal, workspaceId)) {
+                jsonResponse(res, 403, { error: "forbidden" });
+                return;
+            }
+            const tenants = await reg.listTenants(workspaceId);
+            jsonResponse(res, 200, tenants);
+            return;
+        }
+
+        // GET /core/tenants/:tenantId/agents
+        const agentsMatch = path.match(/^\/core\/tenants\/([^/]+)\/agents$/);
+        if (req.method === "GET" && agentsMatch) {
+            if (!principal) {
+                jsonResponse(res, 401, { error: "unauthorized" });
+                return;
+            }
+            const tenantId = agentsMatch[1];
+            const tenant = await reg.getTenant(tenantId);
+            if (!tenant) {
+                jsonResponse(res, 404, { error: "not_found" });
+                return;
+            }
+            if (!canRead(principal, tenant.accountId)) {
+                jsonResponse(res, 403, { error: "forbidden" });
+                return;
+            }
+            const assignments = await reg.listAssignments(tenantId);
+            const agentIds = assignments.map(a => a.agentId);
+            const allAgents = await reg.listAgents();
+            const tenantAgents = allAgents.filter(a => agentIds.includes(a.id));
+            jsonResponse(res, 200, tenantAgents);
+            return;
+        }
+
+        // GET /core/runs
+        if (req.method === "GET" && path === "/core/runs") {
+            if (!principal) {
+                jsonResponse(res, 401, { error: "unauthorized" });
+                return;
+            }
+            const q = url.searchParams;
+            const requestedWorkspaceId = q.get("workspaceId");
+            const scopedAccountId = getPrincipalAccountId(principal);
+            if (!isAdmin(principal) && requestedWorkspaceId && requestedWorkspaceId !== scopedAccountId) {
+                jsonResponse(res, 403, { error: "forbidden" });
+                return;
+            }
+            const data = await reg.listRuns({
+                accountId: isAdmin(principal) ? requestedWorkspaceId : (scopedAccountId || null),
+                tenantId: q.get("tenantId"),
+                agentId: q.get("agentId"),
+                deploymentId: q.get("deploymentId"),
+                status: q.get("status"),
+                provider: q.get("provider"),
+                from: q.get("from"),
+                to: q.get("to"),
+                limit: q.get("limit"),
+                offset: q.get("offset"),
+            });
+            jsonResponse(res, 200, data);
+            return;
+        }
+
+        // GET /core/runs/:runId
+        const runMatch = path.match(/^\/core\/runs\/([^/]+)$/);
+        if (req.method === "GET" && runMatch) {
+            if (!principal) {
+                jsonResponse(res, 401, { error: "unauthorized" });
+                return;
+            }
+            const runId = runMatch[1];
+            const run = await reg.getRun(runId);
+            if (!run) {
+                jsonResponse(res, 404, { error: "not_found" });
+                return;
+            }
+            if (!canRead(principal, run.accountId)) {
+                jsonResponse(res, 403, { error: "forbidden" });
+                return;
+            }
+            jsonResponse(res, 200, run);
+            return;
+        }
+
+        // POST /core/relay/chat
+        if (req.method === "POST" && path === "/core/relay/chat") {
+            if (!principal) {
+                jsonResponse(res, 401, { error: "unauthorized" });
+                return;
+            }
+            let runId = null;
+            try {
+                let parsed;
+                try {
+                    parsed = JSON.parse(await parseBody(req) || "{}");
+                } catch {
+                    jsonResponse(res, 400, { error: "bad_request", message: "Invalid JSON" });
+                    return;
+                }
+
+                runId = `run_${randomUUID().replace(/-/g, "")}`;
+                const { workspaceId, tenantId, agentId, messages, metadata } = parsed;
+
+                if (!workspaceId || !tenantId || !agentId) {
+                    jsonResponse(res, 400, { error: "bad_request", message: "Missing workspaceId, tenantId or agentId" });
+                    return;
+                }
+
+                if (!canUseChat(principal, workspaceId)) {
+                    jsonResponse(res, 403, { error: "forbidden", message: "Insufficient permissions for this workspace" });
+                    return;
+                }
+
+                await reg.createRun({
+                    runId,
+                    accountId: workspaceId,
+                    tenantId,
+                    agentId,
+                    deploymentId: null,
+                    status: "running",
+                    startedAt: new Date().toISOString(),
+                    finishedAt: null,
+                    durationMs: null,
+                    provider: null,
+                    usage: null,
+                    error: null,
+                });
+                await reg.saveRegistry();
+
+                async function failAndRespond(statusCode, errorCode, message) {
+                    try {
+                        await reg.finalizeRunError(runId, {
+                            finishedAt: new Date().toISOString(),
+                            error: { code: errorCode, message, statusCode },
+                        });
+                        await reg.saveRegistry();
+                    } catch (_) {}
+                    jsonResponse(res, statusCode, { error: errorCode, message, trace: { runId } }, { "X-Run-Id": runId });
+                }
+
+                const assignment = await reg.findAssignment(tenantId, agentId);
+                if (!assignment) {
+                    await failAndRespond(404, "not_found", "Assignment not found");
+                    return;
+                }
+
+                const deployment = await reg.findDeployment(assignment.deploymentId);
+                if (!deployment) {
+                    await failAndRespond(404, "not_found", "Deployment not found");
+                    return;
+                }
+
+                await reg.updateRun(runId, { deploymentId: deployment.id });
+                await reg.saveRegistry();
+
+                const forwardBody = JSON.stringify({
+                    agentId,
+                    messages,
+                    metadata
+                });
+
+                const result = await forwardChat(deployment.baseUrl, forwardBody);
+                if (result.error) {
+                    await failAndRespond(result.statusCode || 502, "downstream_error", result.error);
+                    return;
+                }
+
+                await reg.finalizeRunSuccess(runId, {
+                    provider: result.provider ?? null,
+                    usage: result.usage ?? null,
+                    finishedAt: new Date().toISOString(),
+                });
+                await reg.saveRegistry();
+
+                const responseData = result.parsed ?? JSON.parse(result.body);
+                if (!responseData.trace) responseData.trace = {};
+                responseData.trace.runId = runId;
+
+                jsonResponse(res, result.statusCode, responseData, { "X-Run-Id": runId });
+                return;
+            } catch (error) {
+                if (runId) {
+                    try {
+                        await reg.finalizeRunError(runId, {
+                            finishedAt: new Date().toISOString(),
+                            error: { code: "internal_error", message: error?.message, statusCode: 500 },
+                        });
+                        await reg.saveRegistry();
+                    } catch (_) {}
+                }
+                jsonResponse(res, 500, { error: "internal_error", message: error?.message }, runId ? { "X-Run-Id": runId } : {});
+                return;
+            }
+        }
     }
 
     jsonResponse(res, 404, { error: "Not found" });

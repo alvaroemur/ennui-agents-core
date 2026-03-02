@@ -18,16 +18,10 @@ const ENV_KEYS = [
     "SWITCHBOARD_RBAC_ENABLED",
     "SWITCHBOARD_CORE_KEYS",
     "SWITCHBOARD_KEYS_PATH",
-    "SWITCHBOARD_AUTH_GOOGLE_ENABLED",
-    "SWITCHBOARD_AUTH_GOOGLE_CLIENT_ID",
-    "SWITCHBOARD_ADMIN_EMAILS",
-    "SWITCHBOARD_AUTH_GOOGLE_ALLOWED_HOSTED_DOMAINS",
-    "GOOGLE_CLIENT_ID",
     "SWITCHBOARD_AUTH_JWT_ENABLED",
     "SWITCHBOARD_AUTH_JWT_SECRET",
     "SWITCHBOARD_AUTH_JWT_ISSUER",
     "SWITCHBOARD_AUTH_JWT_AUDIENCE",
-    "CORE_AUTH_JWT_SECRET",
 ];
 
 function signHs256Jwt(payload, secret) {
@@ -37,13 +31,6 @@ function signHs256Jwt(payload, secret) {
     const content = `${encodedHeader}.${encodedPayload}`;
     const signature = createHmac("sha256", secret).update(content).digest("base64url");
     return `${content}.${signature}`;
-}
-
-function createUnsignedJwt(payload) {
-    const header = { alg: "none", typ: "JWT" };
-    const encodedHeader = Buffer.from(JSON.stringify(header)).toString("base64url");
-    const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
-    return `${encodedHeader}.${encodedPayload}.x`;
 }
 
 function snapshotEnv() {
@@ -206,91 +193,6 @@ test("authenticateRequest accepts x-api-key and returns normalized principal", a
             }
         );
     } finally {
-        restoreEnv(env);
-    }
-});
-
-test("authenticateRequest accepts Google id_token for allowlisted admin email", async () => {
-    const env = snapshotEnv();
-    const originalFetch = global.fetch;
-    try {
-        const now = Math.floor(Date.now() / 1000);
-        process.env.SWITCHBOARD_RBAC_ENABLED = "true";
-        process.env.SWITCHBOARD_AUTH_GOOGLE_ENABLED = "true";
-        process.env.SWITCHBOARD_AUTH_GOOGLE_CLIENT_ID = "google-client-123";
-        process.env.SWITCHBOARD_ADMIN_EMAILS = "admin@example.com";
-        process.env.SWITCHBOARD_CORE_KEYS = JSON.stringify([{ key: "core-key", accountId: "acc-1" }]);
-
-        global.fetch = async () => ({
-            ok: true,
-            json: async () => ({
-                aud: "google-client-123",
-                iss: "https://accounts.google.com",
-                exp: String(now + 600),
-                email: "admin@example.com",
-                email_verified: "true",
-                hd: "example.com",
-            }),
-        });
-
-        const googleLikeToken = createUnsignedJwt({
-            iss: "https://accounts.google.com",
-            aud: "google-client-123",
-            exp: now + 600,
-            email: "admin@example.com",
-        });
-        const auth = await authenticateRequest(
-            { headers: { authorization: `Bearer ${googleLikeToken}` } },
-            { getAccountById: async () => ({ id: "acc-1", role: "operador-cuenta", status: "active" }) }
-        );
-        assert.equal(auth.enabled, true);
-        assert.equal(auth.principal?.role, "admin-tecnico");
-        assert.equal(auth.principal?.subject, "admin@example.com");
-    } finally {
-        global.fetch = originalFetch;
-        restoreEnv(env);
-    }
-});
-
-test("authenticateRequest accepts Google operador when in SWITCHBOARD_GOOGLE_OPERADORES", async () => {
-    const env = snapshotEnv();
-    const originalFetch = global.fetch;
-    try {
-        const now = Math.floor(Date.now() / 1000);
-        process.env.SWITCHBOARD_RBAC_ENABLED = "true";
-        process.env.SWITCHBOARD_AUTH_GOOGLE_ENABLED = "true";
-        process.env.SWITCHBOARD_AUTH_GOOGLE_CLIENT_ID = "google-client-123";
-        process.env.SWITCHBOARD_ADMIN_EMAILS = "admin@example.com";
-        process.env.SWITCHBOARD_GOOGLE_OPERADORES = "operator@example.com:gateway";
-
-        global.fetch = async () => ({
-            ok: true,
-            json: async () => ({
-                aud: "google-client-123",
-                iss: "https://accounts.google.com",
-                exp: String(now + 600),
-                email: "operator@example.com",
-                email_verified: "true",
-                hd: "example.com",
-            }),
-        });
-
-        const googleLikeToken = createUnsignedJwt({
-            iss: "https://accounts.google.com",
-            aud: "google-client-123",
-            exp: now + 600,
-            email: "operator@example.com",
-        });
-        const auth = await authenticateRequest(
-            { headers: { authorization: `Bearer ${googleLikeToken}` } },
-            {}
-        );
-        assert.equal(auth.enabled, true);
-        assert.equal(auth.principal?.role, "operador-cuenta");
-        assert.equal(auth.principal?.accountId, "gateway");
-        assert.equal(auth.principal?.subject, "operator@example.com");
-    } finally {
-        global.fetch = originalFetch;
         restoreEnv(env);
     }
 });

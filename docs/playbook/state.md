@@ -13,13 +13,14 @@ Mantener y evolucionar `ennui-agents-core` como paquete base para agentes con:
 - Playbook inicializado.
 - Se detectan cambios de codigo e infraestructura en curso en el repositorio.
 - Features Fase 1 formalizadas en el ledger.
-- Decidido: mantener `switchboard` como servicio separado de `core` en el MVP.
+- Decidido: mantener `switchboard` como modulo interno separado del runtime, con superficie publica unificada bajo `core`.
 - Features activas:
   - Sin features `in_progress` al cierre de Fase 1 MVP.
 - Features cerradas:
   - `F-202603-01-core-switchboard-contract-v1` (`done`)
   - `F-202603-03-switchboard-rbac-multitenant-basico` (`done`)
   - `F-202603-04-switchboard-runs-traceability-minima` (`done`)
+  - `F-202603-09-core-api-publica-unificada-relay` (`done`)
 - `F-202603-02-switchboard-persistence-domain-db` queda postergada (`dropped`) para evitar ruido en esta fase.
 - Persistencia activa de `switchboard`: fallback local por archivos (`registry.json`).
 - RBAC v2 implementado con separación authn/authz:
@@ -30,6 +31,14 @@ Mantener y evolucionar `ennui-agents-core` como paquete base para agentes con:
 - Decision de direccion (nueva): `gateway` operara como frontend-only con autenticacion de usuario (JWT).
   - `core-key` no debe vivir en cliente web.
   - `core-key` queda para integraciones M2M/controladas.
+- Decision de direccion (nueva): API publica canonica en `core/*` con contratos minimos.
+  - `switchboard` queda como modulo interno para control plane (workspaces/cuentas, tenants, asignacion de agentes).
+  - `tenant` se define como entidad separada del dominio.
+- `F-202603-09-core-api-publica-unificada-relay` pasa a `ready` con contrato v1 y handoff:
+  - modelo canonico `workspace/tenant/agent/assignment/run/user/membership`,
+  - contrato publico minimo en `core/*`,
+  - retiro de legacy inmediato (sin fase dual) y seed inicial con agentes mock.
+  - artefacto canonico: `docs/playbook/core-contract-v1.md`.
 - Hardening post-RBAC iniciado:
   - suite automatizada de tests RBAC en `switchboard/test`,
   - workflow CI dedicado para ejecutar tests de RBAC en cambios de `switchboard`,
@@ -52,7 +61,7 @@ Mantener y evolucionar `ennui-agents-core` como paquete base para agentes con:
 
 - Usar este playbook como unica referencia operativa de sesion.
 - Gestionar trabajo nuevo mediante el flujo de features del ledger.
-- Mantener `switchboard` separado de `core` durante la fase MVP.
+- Mantener `switchboard` como modulo interno de control con superficie publica unificada bajo `core`.
 
 ## Backlog (no comprometido)
 

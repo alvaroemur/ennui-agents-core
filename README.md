@@ -49,7 +49,7 @@ Endpoints principales:
 - `GET /api/config/core`
 - `GET /api/config/subaccounts`
 - `GET /api/config/agents/:agentId/config.json`
-- `POST /api/chat` (alias: `POST /agent-chat`)
+- `POST /api/chat`
 - `GET /api/auth/google/config`
 - `GET /api/auth/google/url?redirectUri=...&state=...`
 - `POST /api/auth/google/login`
