@@ -1,10 +1,10 @@
-# Optional: expose ennui-agents-core via Ingress. Adjust host and ingress class for your cluster.
+# Optional: expose core via Ingress. Adjust host and ingress class for your cluster.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: ennui-agents-core
+  name: core
   labels:
-    app: ennui-agents-core
+    app: core
 spec:
   ingressClassName: nginx
   rules:
@@ -15,9 +15,9 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: ennui-agents-core
+                name: core
                 port:
                   number: 80
   # tls:
   #   - hosts: [agents.example.com]
-  #     secretName: ennui-agents-core-tls
+  #     secretName: core-tls

@@ -1,0 +1,23 @@
+{
+  "accountId": "inspiro-agents",
+  "accountName": "Inspiro Agents",
+  "environment": "production",
+  "branding": {
+    "deploymentName": "Inspiro Agents Core",
+    "displayName": "Inspiro Agents",
+    "primaryColor": "#2F6BFF",
+    "logoUrl": "",
+    "supportEmail": "support@inspiroagents.com"
+  },
+  "auth": {
+    "headerName": "x-core-deploy-token",
+    "deployToken": ""
+  },
+  "features": {
+    "allowOpenApiDocs": false,
+    "enableTrafficMonitor": true
+  },
+  "tracing": {
+    "fingerprintPrefix": "ia-gateway-"
+  }
+}

@@ -1,0 +1,1 @@
+/Users/alvaromur/Src/inspiro-agents/aliantza-compras/docs/policies/ascii-signature.md

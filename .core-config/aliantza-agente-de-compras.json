@@ -1,0 +1,21 @@
+{
+  "subaccountId": "aliantza",
+  "subaccountName": "Aliantza",
+  "ownerAccountId": "inspiro-agents",
+  "agentId": "agente-de-compras",
+  "enabled": true,
+  "branding": {
+    "displayName": "Aliantza - Agente de Compras",
+    "primaryColor": "#146C43"
+  },
+  "auth": {
+    "clientToken": "aliantza-change-this-token"
+  },
+  "limits": {
+    "requestsPerMinute": 60,
+    "maxInputTokens": 12000
+  },
+  "metadata": {
+    "contractPlan": "pro"
+  }
+}

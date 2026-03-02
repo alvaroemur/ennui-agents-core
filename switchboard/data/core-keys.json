@@ -1,0 +1,20 @@
+{
+  "keys": [
+    {
+      "id": "key-inspiro-gateway-01",
+      "label": "Inspiro Agents Gateway Access",
+      "key": "eY7kmb9pr8TBcZAPq2hgXAFNKpLiwN8ciajBPlY6cqU=",
+      "accountId": "inspiro-comercial",
+      "status": "active",
+      "createdAt": "2026-03-01T00:00:00Z"
+    },
+    {
+      "id": "key-platform-admin-01",
+      "label": "Platform Admin",
+      "key": "change-me-platform-admin-key",
+      "accountId": "platform",
+      "status": "active",
+      "createdAt": "2026-03-01T00:00:00Z"
+    }
+  ]
+}

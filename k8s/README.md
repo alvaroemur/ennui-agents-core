@@ -1,25 +1,22 @@
-# ennui-agents-core on Kubernetes
+# core on Kubernetes
 
 ## Prerequisites
 
-- Docker image built from repo root: `docker build -t ennui-agents-core:latest -f ennui-agents-core/Dockerfile .`
+- Docker image built from this module: `docker build -t core:latest -f Dockerfile .`
 - Cluster with kubectl configured.
 
-## ConfigMap
+## Agent config source
 
-Create the ConfigMap from the agents config (from repo root):
+The deployment uses the agent configs baked into the Docker image (`/app/config/agents`).
 
-```bash
-kubectl create configmap ennui-agents-config --from-file=agents=agents --dry-run=client -o yaml > ennui-agents-core/k8s/configmap-agents.yaml
-kubectl apply -f ennui-agents-core/k8s/configmap-agents.yaml
-```
+If you need runtime overrides, mount your own volume/path and set `CONFIG_DIR` accordingly.
 
 ## Secret (optional)
 
-Copy `secret.example.yaml` to `secret.yaml`, fill API keys and optional ENNUI_API_KEY, then:
+Copy `secret.example.yaml` to `secret.yaml`, fill API keys and optional CORE_API_KEY, then:
 
 ```bash
-kubectl apply -f ennui-agents-core/k8s/secret.yaml
+kubectl apply -f k8s/secret.yaml
 ```
 
 Do not commit `secret.yaml`.
@@ -27,12 +24,12 @@ Do not commit `secret.yaml`.
 ## Deploy
 
 ```bash
-kubectl apply -f ennui-agents-core/k8s/deployment.yaml
-kubectl apply -f ennui-agents-core/k8s/service.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
 ```
 
-Optional Ingress: edit `ingress.yaml` (host, TLS), then `kubectl apply -f ennui-agents-core/k8s/ingress.yaml`.
+Optional Ingress: edit `ingress.yaml` (host, TLS), then `kubectl apply -f k8s/ingress.yaml`.
 
 ## Image
 
-For a real registry: tag and push the image, then set `image` in deployment.yaml (e.g. `your-registry/ennui-agents-core:latest`).
+For a real registry: tag and push the image, then set `image` in deployment.yaml (e.g. `your-registry/core:latest`).

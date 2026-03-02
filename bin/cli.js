@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI ennui-agents: validación, listar agentes, etc.
+ * CLI core: validación, listar agentes, etc.
  */
 
 import { listAgentIds } from "../src/index.js";
@@ -14,7 +14,7 @@ async function main() {
         return;
     }
     if (cmd === "health") {
-        const base = process.env.ENNUI_AGENTS_API || "http://localhost:3000";
+        const base = process.env.CORE_API || "http://localhost:3000";
         try {
             const r = await fetch(base + "/health");
             const data = await r.json().catch(() => ({}));
@@ -26,10 +26,10 @@ async function main() {
         return;
     }
     // default: help
-    console.log(`ennui-agents CLI
-  ennui-agents list     List agent IDs from agents/
-  ennui-agents health   GET /health from API (ENNUI_AGENTS_API)
-  ennui-agents          This help`);
+    console.log(`core CLI
+  core list     List agent IDs from agents/
+  core health   GET /health from API (CORE_API)
+  core          This help`);
 }
 
 main().catch((e) => {

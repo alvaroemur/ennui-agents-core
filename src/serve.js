@@ -1,5 +1,5 @@
 /**
- * ennui-agents API: health, config desde agents/, y POST /api/chat (con runtime opcional).
+ * core API: health, config desde agents/, y POST /api/chat (con runtime opcional).
  * CONFIG_DIR por defecto = ./agents (raíz del módulo).
  */
 
@@ -155,5 +155,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`ennui-agents API on port ${PORT} (CONFIG_DIR=${CONFIG_DIR})`);
+    console.log(`core API on port ${PORT} (CONFIG_DIR=${CONFIG_DIR})`);
 });

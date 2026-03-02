@@ -36,9 +36,9 @@
         <div id="status-content">Cargando…</div>
     </section>
 
-    <section id="section-clients">
-        <h2>Clients</h2>
-        <div id="clients-content">Cargando…</div>
+    <section id="section-accounts">
+        <h2>Accounts</h2>
+        <div id="accounts-content">Cargando…</div>
     </section>
 
     <section id="section-agents">
@@ -97,13 +97,13 @@
             return t.innerHTML;
         }
 
-        function renderClients(list) {
+        function renderAccounts(list) {
             if (!list || list.length === 0) {
-                document.getElementById("clients-content").innerHTML = "<p class=\"muted\">No hay clients.</p>";
+                document.getElementById("accounts-content").innerHTML = "<p class=\"muted\">No hay accounts.</p>";
                 return;
             }
-            const rows = list.map((c) => "<tr><td>" + escapeHtml(c.id) + "</td><td>" + escapeHtml(c.name || "—") + "</td><td>" + escapeHtml(c.slug || "—") + "</td></tr>").join("");
-            document.getElementById("clients-content").innerHTML = "<table><thead><tr><th>ID</th><th>Nombre</th><th>Slug</th></tr></thead><tbody>" + rows + "</tbody></table>";
+            const rows = list.map((a) => "<tr><td>" + escapeHtml(a.id) + "</td><td>" + escapeHtml(a.name || "—") + "</td><td>" + escapeHtml(a.role || "—") + "</td><td>" + escapeHtml(a.status || "—") + "</td></tr>").join("");
+            document.getElementById("accounts-content").innerHTML = "<table><thead><tr><th>ID</th><th>Nombre</th><th>Rol</th><th>Status</th></tr></thead><tbody>" + rows + "</tbody></table>";
         }
 
         function renderAgents(list) {
@@ -120,8 +120,8 @@
                 document.getElementById("deployments-content").innerHTML = "<p class=\"muted\">No hay deployments.</p>";
                 return;
             }
-            const rows = list.map((d) => "<tr><td>" + escapeHtml(d.id) + "</td><td class=\"font-mono text-sm\">" + escapeHtml(d.baseUrl) + "</td><td>" + escapeHtml(d.clientId) + "</td><td>" + escapeHtml((d.agentIds || []).join(", ")) + "</td><td>" + escapeHtml(d.versionTag || "—") + "</td></tr>").join("");
-            document.getElementById("deployments-content").innerHTML = "<table><thead><tr><th>ID</th><th>Base URL</th><th>Client</th><th>Agents</th><th>Versión</th></tr></thead><tbody>" + rows + "</tbody></table>";
+            const rows = list.map((d) => "<tr><td>" + escapeHtml(d.id) + "</td><td class=\"font-mono text-sm\">" + escapeHtml(d.baseUrl) + "</td><td>" + escapeHtml(d.accountId || "—") + "</td><td>" + escapeHtml((d.agentIds || []).join(", ")) + "</td><td>" + escapeHtml(d.versionTag || "—") + "</td></tr>").join("");
+            document.getElementById("deployments-content").innerHTML = "<table><thead><tr><th>ID</th><th>Base URL</th><th>Account</th><th>Agents</th><th>Versión</th></tr></thead><tbody>" + rows + "</tbody></table>";
         }
 
         let deploymentsList = [];
@@ -134,33 +134,34 @@
                 document.getElementById("assignments-content").innerHTML = "<p class=\"muted\">No hay assignments.</p>";
                 return;
             }
-            const clientDeployments = {};
+            const accountDeployments = {};
             deploymentsList.forEach((d) => {
-                if (!clientDeployments[d.clientId]) clientDeployments[d.clientId] = [];
-                clientDeployments[d.clientId].push(d);
+                if (!d.accountId) return;
+                if (!accountDeployments[d.accountId]) accountDeployments[d.accountId] = [];
+                accountDeployments[d.accountId].push(d);
             });
 
             const rows = assignmentsList.map((a) => {
-                const options = (clientDeployments[a.clientId] || [])
+                const options = (accountDeployments[a.accountId] || [])
                     .map((d) => "<option value=\"" + escapeHtml(d.id) + "\"" + (d.id === a.deploymentId ? " selected" : "") + ">" + escapeHtml(d.id) + " (" + escapeHtml(d.versionTag || "") + ")</option>")
                     .join("");
-                const select = "<select data-client-id=\"" + escapeHtml(a.clientId) + "\" data-agent-id=\"" + escapeHtml(a.agentId) + "\" class=\"promote-select\">" + options + "</select>";
-                const btn = "<button type=\"button\" class=\"promote-btn\" data-client-id=\"" + escapeHtml(a.clientId) + "\" data-agent-id=\"" + escapeHtml(a.agentId) + "\">Promover</button>";
-                return "<tr><td>" + escapeHtml(a.clientId) + "</td><td>" + escapeHtml(a.agentId) + "</td><td>" + escapeHtml(a.deploymentId) + "</td><td class=\"promote-cell\">" + select + " " + btn + "</td></tr>";
+                const select = "<select data-account-id=\"" + escapeHtml(a.accountId) + "\" data-agent-id=\"" + escapeHtml(a.agentId) + "\" class=\"promote-select\">" + options + "</select>";
+                const btn = "<button type=\"button\" class=\"promote-btn\" data-account-id=\"" + escapeHtml(a.accountId) + "\" data-agent-id=\"" + escapeHtml(a.agentId) + "\">Promover</button>";
+                return "<tr><td>" + escapeHtml(a.accountId) + "</td><td>" + escapeHtml(a.agentId) + "</td><td>" + escapeHtml(a.deploymentId) + "</td><td class=\"promote-cell\">" + select + " " + btn + "</td></tr>";
             }).join("");
-            document.getElementById("assignments-content").innerHTML = "<table><thead><tr><th>Client</th><th>Agent</th><th>Deployment actual</th><th>Promoción</th></tr></thead><tbody>" + rows + "</tbody></table>";
+            document.getElementById("assignments-content").innerHTML = "<table><thead><tr><th>Account</th><th>Agent</th><th>Deployment actual</th><th>Promoción</th></tr></thead><tbody>" + rows + "</tbody></table>";
 
             document.querySelectorAll(".promote-btn").forEach((btn) => {
                 btn.addEventListener("click", async () => {
-                    const clientId = btn.getAttribute("data-client-id");
+                    const accountId = btn.getAttribute("data-account-id");
                     const agentId = btn.getAttribute("data-agent-id");
                     const row = btn.closest("tr");
                     const select = row.querySelector(".promote-select");
                     const deploymentId = select && select.value;
-                    if (!deploymentId || deploymentId === assignmentsList.find((x) => x.clientId === clientId && x.agentId === agentId).deploymentId) return;
+                    if (!deploymentId || deploymentId === assignmentsList.find((x) => x.accountId === accountId && x.agentId === agentId).deploymentId) return;
                     btn.disabled = true;
                     try {
-                        await apiPatch("/api/registry/assignments/" + encodeURIComponent(clientId) + "/" + encodeURIComponent(agentId), { deploymentId });
+                        await apiPatch("/api/registry/assignments/" + encodeURIComponent(accountId) + "/" + encodeURIComponent(agentId), { deploymentId });
                         await loadAll();
                     } catch (e) {
                         row.insertAdjacentHTML("beforeend", "<tr><td colspan=\"4\" class=\"error-msg\">" + escapeHtml(e.message) + "</td></tr>");
@@ -172,22 +173,22 @@
 
         async function loadAll() {
             try {
-                const [status, clients, agents, deployments, assignments] = await Promise.all([
+                const [status, accounts, agents, deployments, assignments] = await Promise.all([
                     api("/api/registry/status"),
-                    api("/api/registry/clients"),
+                    api("/api/registry/accounts"),
                     api("/api/registry/agents"),
                     api("/api/registry/deployments"),
                     api("/api/registry/assignments"),
                 ]);
                 window._deploymentsCache = deployments;
                 renderStatus(status);
-                renderClients(clients);
+                renderAccounts(accounts);
                 renderAgents(agents);
                 renderDeployments(deployments);
                 renderAssignments(assignments);
             } catch (e) {
                 document.getElementById("section-status").querySelector("div").textContent = "Error: " + e.message;
-                document.getElementById("clients-content").textContent = "Error: " + e.message;
+                document.getElementById("accounts-content").textContent = "Error: " + e.message;
                 document.getElementById("agents-content").textContent = "Error: " + e.message;
                 document.getElementById("deployments-content").textContent = "Error: " + e.message;
                 document.getElementById("assignments-content").textContent = "Error: " + e.message;

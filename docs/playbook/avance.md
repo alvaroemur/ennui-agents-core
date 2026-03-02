@@ -1,0 +1,120 @@
+# Avance
+
+## 2026-03-01
+
+- Se crea la estructura canonica de `docs/playbook/`.
+- Se inicializa `state.md` con objetivo, estado, plan activo, restricciones y backlog.
+- Se crea el ledger base de features en `docs/playbook/features/`.
+- Se inicializa `docs/playbook/features/roadmap.md` con una primera seccion de vision.
+- Se completa `roadmap.md` con vision v0.1, matriz de gaps, terminologia base y roadmap por fases.
+- Se agrega a `roadmap.md` un flujograma Mermaid adaptado para ejecucion simultanea de subagents por dominio.
+- Se formalizan features Fase 1 en el ledger (`F-202603-01` a `F-202603-05`) y se pone en curso `F-202603-04`.
+- Se implementa trazabilidad minima de runs en `switchboard`:
+  - persistencia en `registry` para runs,
+  - lifecycle de run en `POST /api/chat`,
+  - endpoints `GET /api/runs` y `GET /api/runs/:runId`,
+  - header `X-Run-Id` para correlacion.
+- Se actualiza documentacion de `switchboard` para incluir runs y configuracion `SWITCHBOARD_MAX_RUNS`.
+- Se validan cambios con `node --check` y smoke test de helpers de runs.
+- Se ejecuta smoke test HTTP local de `switchboard`:
+  - `GET /api/runs` con paginacion por defecto,
+  - `POST /api/chat` con error esperado por deployment caido,
+  - verificacion de `X-Run-Id` y persistencia del run en estado `error`.
+- Se publica contrato tecnico `docs/switchboard-core-contract-v1.md` (versionado, responsabilidades, endpoints, errores y correlacion).
+- Se implementa persistencia opcional Postgres/Neon en `switchboard/src/registry.js`:
+  - esquema inicial (`clients`, `agents`, `deployments`, `assignments`, `runs`),
+  - seed inicial desde `registry.json` cuando la DB esta vacia,
+  - fallback automatico a archivo/memoria si Neon no esta disponible.
+- Se adapta `switchboard/src/index.js` al registro async (DB o fallback) y se endurece manejo de errores:
+  - validacion de `baseUrl` en CRUD de deployments y monitoreo de estado,
+  - cierre best-effort de runs ante errores inesperados en `/api/chat`.
+- Se endurece `switchboard/src/proxy.js` para URLs invalidas de deployment.
+- Se agrega dependencia `@neondatabase/serverless` al paquete `switchboard`.
+- Se validan cambios con `node --check`, smoke tests HTTP locales y prueba de fallback con `SWITCHBOARD_DATABASE_URL` invalida.
+- Se implementa RBAC MVP por token:
+  - nuevo modulo `switchboard/src/rbac.js`,
+  - auth por `Authorization: Bearer` o `X-API-Key`,
+  - roles `admin-tecnico`, `operador-cuenta`, `lector-cuenta`.
+- Se agrega aislamiento por cuenta (`clientId`) para runs/chat y restricciones en `registry` para usuarios no admin.
+- Se documenta matriz de permisos en `docs/switchboard-rbac-matrix-v1.md`.
+- Se ejecutan smoke tests de RBAC:
+  - sin token -> `401`,
+  - operador sin permisos de escritura en registry -> `403`,
+  - operador con `clientId` ajeno -> `403`,
+  - operador en su cuenta -> acceso permitido.
+- Se decide postergar `F-202603-02` (persistencia DB) y operar por ahora con configuracion/archivos locales (`registry.json`).
+- Se despliega `core` en K8s local (`docker-desktop`) con `service/core` tipo `ClusterIP` y acceso local por `kubectl port-forward` (`http://localhost:3000`).
+- Se detecta ajuste operativo: con `configmap-agents` vacio, `core` no lista agentes; para la validacion se usa configuracion baked-in del contenedor.
+- Se valida E2E `switchboard -> core` en local:
+  - request `POST /api/chat` via `switchboard` (deployment `comercial-staging` -> `http://localhost:3000`),
+  - respuesta `200` con `X-Run-Id`,
+  - `GET /api/runs` y `GET /api/runs/:runId` reflejan run `success`.
+- Se cierran features:
+  - `F-202603-01-core-switchboard-contract-v1` -> `done`,
+  - `F-202603-04-switchboard-runs-traceability-minima` -> `done`.
+- Se actualiza baseline K8s para evitar ruido de agents vacios:
+  - `k8s/deployment.yaml` deja de montar `configmap` de agentes por defecto,
+  - `k8s/README.md` documenta uso de configs baked-in en la imagen.
+- Se integra modelo de token por cuenta/deploy en `switchboard`:
+  - RBAC ahora lee tokens desde `SWITCHBOARD_RBAC_TOKENS` y/o archivo `tokens.json`,
+  - se añade `switchboard/data/tokens.json` con metadata de cuenta/deploy para Inspiro Agents Gateway,
+  - `POST /api/chat` puede resolver `clientId` desde token (`defaultClientId`) cuando no llega header.
+- Se valida token de cuenta/deploy en runtime:
+  - sin token en endpoints protegidos -> `401`,
+  - con token de cuenta en `Authorization` -> chat `200` sin `X-Client-Id` explicito,
+  - runs listados con scope automatico del `clientId` asociado al token.
+- Verificacion final: token de cuenta de Inspiro Agents Gateway responde correctamente en `/api/chat` sin header `X-Client-Id`.
+- Ideate: evolución Core-Switchboard como BFF único. Decisiones registradas:
+  - Nuevo endpoint **sustituye** a `POST /api/chat` (sin alias indefinido; migración controlada).
+  - Agentes **internos** se invocan **por HTTP** (mismo contrato que externos; deployment con baseUrl).
+  - Agentes (externos e internos) **solo devuelven «qué decir»**; el **endpoint (core-switchboard)** es quien **envía** (llamada a LLM, monitoreo, masking, respuesta al cliente).
+  - Todo bajo **core-switchboard** (un solo sistema BFF). Se crea feature `F-202603-06-core-bff-agent-proxy` en inbox y se añade al backlog de `state.md`.
+- Se implementa RBAC v2 con separación explícita authn/authz:
+  - `switchboard/data/tokens.json` se reemplaza por `switchboard/data/core-keys.json`,
+  - la core-key autentica cuenta (`accountId`) y el rol se resuelve en `registry.accounts`,
+  - renaming integral: `clients/clientId` -> `accounts/accountId` en código, data, UI y docs.
+- Se elimina retrocompatibilidad legacy de naming en runtime:
+  - `X-Client-Id`, `clientId` en body y `clientId` en query ahora responden `400`,
+  - `/api/registry/clients` deja de estar disponible; se usa `/api/registry/accounts`.
+- Se migra persistencia Neon/Postgres a naming de cuenta:
+  - tablas/columnas de DB internas pasan a `switchboard_accounts` y `account_id`.
+- Validación final RBAC v2 (smoke tests):
+  - `GET /api/runs` sin key -> `401`,
+  - operador con scope válido -> `200`,
+  - operador con `X-Account-Id` fuera de scope -> `403`,
+  - inputs legacy (`clientId`) -> `400`.
+- Se elimina compatibilidad de paths legacy de chat:
+  - `POST /switchboard/chat` y `POST /orchestrator/chat` quedan retirados,
+  - `POST /api/chat` pasa a ser el unico endpoint de chat soportado.
+- Ideate: se decide materializar la propuesta de reutilizar `pi-mono` como spike tecnico para el puente Core -> Agentes -> LLM.
+  - Se crea `F-202603-07-core-llm-adapter-pi-ai-spike` en `inbox`.
+  - Alcance del spike: PoC para adaptar `src/llm.js` con `@mariozechner/pi-ai` sin romper contrato actual, preservando monitoreo y masking en `llm-proxy`.
+  - Salida esperada: decision go/no-go y plan de integracion con `F-202603-06-core-bff-agent-proxy`.
+- Se consolida documentacion tecnica en una sola fuente:
+  - `docs/playbook/architecture.md` absorbe arquitectura core/gateway, contrato switchboard/core v1 y matriz RBAC v1.
+  - Se eliminan `docs/core-gateway-arquitectura.md`, `docs/switchboard-core-contract-v1.md` y `docs/switchboard-rbac-matrix-v1.md`.
+  - Se actualizan referencias del playbook para apuntar al documento consolidado.
+- Se cierra `F-202603-03-switchboard-rbac-multitenant-basico` en estado `done`.
+  - Criterio de cierre: RBAC v2 estable en runtime con naming final (`accountId`/`core-key`), sin retrocompatibilidad legacy y documentación consolidada.
+  - Pendiente residual movido a hardening posterior: tests automatizados de autorización en CI + rotación segura de core-keys.
+- Se crea `docs/playbook/gateway-bff-integration-v2.md` como borrador tecnico para cambios en `inspiro-agents/gateway`.
+  - Incluye contrato HTTP propuesto (`POST /api/bff/chat`), headers/core-key/accountId, errores esperados y plan de migracion por fases.
+  - Se definen cambios minimos en `gateway`: cliente BFF unico, configuracion por path, propagacion de `X-Run-Id` y compatibilidad temporal v1/v2.
+- Se actualiza `F-202603-06-core-bff-agent-proxy` de `inbox` a `candidate` por disponibilidad de artefacto tecnico inicial para validacion inter-repo.
+- Se implementa baseline de hardening RBAC en `switchboard` con tests automatizados:
+  - nueva suite `switchboard/test/rbac.test.js` (authn/authz + matriz de permisos por rol),
+  - smoke tests HTTP `switchboard/test/rbac-http.test.js` (`401`, `403`, rechazo de `clientId` legacy),
+  - script `npm test` en `switchboard` y atajo `npm run switchboard:test` en la raiz.
+- Se agrega CI `/.github/workflows/switchboard-rbac-tests.yml` para ejecutar la suite RBAC en cambios de `switchboard`.
+- Validacion local: `npm --prefix switchboard test` con 13/13 tests OK.
+- Se crea `docs/playbook/core-keys-rotation-runbook.md` con proceso operativo de rotacion segura de credenciales:
+  - estrategia por superposicion (alta nueva key -> cutover consumidor -> retiro key vieja),
+  - validaciones obligatorias de auth/authz (`401`/`403`) y trazabilidad por `X-Run-Id`,
+  - protocolo de rollback y criterios de salida.
+- Se actualizan referencias canonicas del playbook (`README`, `architecture`, `state`) para incluir el runbook de core-keys.
+- Reevaluacion de arquitectura para objetivo de producto: `gateway` frontend-only para gestion de cuentas/tenants/agentes.
+  - Se documenta plan tecnico `docs/playbook/frontend-gateway-jwt-access-plan.md`.
+  - Direccion acordada: autenticacion por JWT de usuario en browser; `core-key` solo M2M.
+  - Se registra migracion por fases (authn dual temporal, RBAC por claims, retiro de `core-key` del frontend).
+- Se crea feature `F-202603-08-switchboard-jwt-user-auth-frontend-gateway` y pasa a `candidate`.
+- Se actualizan `state.md`, `architecture.md` y `README.md` para reflejar la nueva direccion frontend-only.

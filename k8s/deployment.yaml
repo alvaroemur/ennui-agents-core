@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ennui-agents-core
+  name: core
   labels:
-    app: ennui-agents-core
+    app: core
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ennui-agents-core
+      app: core
   template:
     metadata:
       labels:
-        app: ennui-agents-core
+        app: core
     spec:
       containers:
-        - name: ennui-agents-core
-          image: ennui-agents-core:latest
+        - name: core
+          image: core:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
@@ -28,13 +28,5 @@ spec:
               value: "3000"
           envFrom:
             - secretRef:
-                name: ennui-agents-secrets
+                name: core-secrets
                 optional: true
-          volumeMounts:
-            - name: agents-config
-              mountPath: /app/config/agents
-              readOnly: true
-      volumes:
-        - name: agents-config
-          configMap:
-            name: ennui-agents-config

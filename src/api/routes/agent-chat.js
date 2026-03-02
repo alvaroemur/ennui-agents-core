@@ -4,6 +4,11 @@
 
 import { getRuntime, callLLM } from "../../index.js";
 import { loadAgentConfig, listAgentIds } from "../../config-loader.js";
+import { getFingerprintPrefix, loadCoreConfig } from "../../core-config/index.js";
+import {
+    composeSystemPromptWithSignature,
+    createExecutionFingerprint,
+} from "../../signature.js";
 
 function sanitizeApiKey(k) {
     if (typeof k !== "string") return "";
@@ -27,7 +32,7 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
         return;
     }
 
-    const { agentId, messages, appendSystemPrompt, preferredProvider } = body;
+    const { agentId, messages, appendSystemPrompt, preferredProvider, signature } = body;
     if (!agentId || typeof agentId !== "string" || !agentId.trim()) {
         let allowed = [];
         try {
@@ -57,6 +62,30 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
         return;
     }
 
+    let coreConfig = null;
+    try {
+        coreConfig = await loadCoreConfig();
+    } catch (_) {
+        coreConfig = null;
+    }
+    const fingerprintPrefix = getFingerprintPrefix(coreConfig);
+    const fingerprint = createExecutionFingerprint({
+        agentId,
+        preferredProvider,
+        messageCount: messages.length,
+        requestId: req.headers["x-request-id"],
+        fingerprintPrefix,
+    });
+    const runId = `core-${fingerprint.slice(-8)}`;
+    const env = String(process.env.CORE_ENV || process.env.NODE_ENV || "dev").trim() || "dev";
+    const trace = {
+        fingerprint,
+        runId,
+        env,
+        fingerprintPrefix: fingerprintPrefix || undefined,
+        signatureSource: "unknown",
+    };
+
     const apiKeys = {
         geminiKey: sanitizeApiKey(process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || ""),
         openRouterKey: sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || ""),
@@ -78,11 +107,23 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
         if (appendSystemPrompt && typeof appendSystemPrompt === "string" && appendSystemPrompt.trim()) {
             systemPrompt = systemPrompt + "\n\n" + appendSystemPrompt.trim();
         }
+        const signatureResult = composeSystemPromptWithSignature({
+            basePrompt: systemPrompt,
+            customSignature: signature,
+            apiKeys,
+            env,
+            runId,
+            fingerprint,
+            agentLine: `CORE GATEWAY BACKEND · ${agentId}`,
+        });
+        systemPrompt = signatureResult.systemPrompt;
+        trace.signatureSource = signatureResult.signatureSource;
 
         const result = await callLLM({
             systemPrompt,
             contents: messages,
             apiKeys,
+            trace,
         });
 
         if (!result.text) {
@@ -94,6 +135,7 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
                     ? "API key inválida o no reconocida. Revisa las variables de entorno."
                     : errMsg,
                 provider: result.provider ?? undefined,
+                trace,
             });
             return;
         }
@@ -117,9 +159,10 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
             completion: completion ?? undefined,
             usage: result.usage ?? undefined,
             provider: result.provider ?? undefined,
+            trace,
         });
     } catch (e) {
         console.error("agent-chat error", e);
-        jsonResponse(res, 500, { error: "Request failed", detail: e?.message || String(e) });
+        jsonResponse(res, 500, { error: "Request failed", detail: e?.message || String(e), trace });
     }
 }

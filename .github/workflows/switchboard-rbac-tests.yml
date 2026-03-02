@@ -1,0 +1,31 @@
+name: switchboard-rbac-tests
+
+on:
+  pull_request:
+    paths:
+      - "switchboard/**"
+      - ".github/workflows/switchboard-rbac-tests.yml"
+  push:
+    paths:
+      - "switchboard/**"
+      - ".github/workflows/switchboard-rbac-tests.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "switchboard/package-lock.json"
+
+      - name: Install switchboard deps
+        run: npm --prefix switchboard ci
+
+      - name: Run RBAC tests
+        run: npm --prefix switchboard test
