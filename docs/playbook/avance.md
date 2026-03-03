@@ -151,6 +151,8 @@
 
 ## 2026-03-02
 
+- PoC F-202603-07 implementado: adaptador `src/llm-pi-ai.js` con `@mariozechner/pi-ai`, activable con `USE_PI_AI=true`; `src/llm.js` delega cuando la env está definida; llm-proxy mantiene monitoreo y masking. DoD parcial (PoC + validacion contrato) cumplido.
+- Ideate materializado: integracion de pi-mono como adaptador LLM. Se precisa que la integracion es con el **paquete** `@mariozechner/pi-ai` (API unificada multi-provider, esquema compatible OpenAI), no con el monorepo completo. Se define alcance minimo del PoC en F-202603-07 (ruta de entrada por env, modelo inicial, criterios de comparacion) y la feature pasa a `candidate`.
 - Se inicia ejecucion de `F-202603-09-core-api-publica-unificada-relay`.
 - Se implementan rutas publicas `core/*` en `src/api/server.js` (health, me, workspaces, tenants, agents, runs) consumiendo `switchboard/src/registry.js` internamente.
 - Se implementa `POST /core/relay/chat` en `core` con resolucion `tenant + agent -> deployment` y proxy a runtime.
@@ -159,3 +161,92 @@
 - Se conecta seed mock en persistencia activa (`switchboard/data/registry.json`) con `Inspiro Agents`, tenants `Aliantza` y `Inspiro Agents Web`, y 5 agentes mock.
 - Se elimina `POST /api/chat` de `switchboard/src/index.js` (proxy legacy retirado de forma inmediata).
 - Se cierra `F-202603-09-core-api-publica-unificada-relay` en estado `done`.
+- Se crea `F-202603-10-core-db-domain-completo` para consolidar el esquema en base de datos (workspaces, usuarios, tenants, agentes, etc).
+- Se pasa `F-202603-10` a `in_progress`.
+- Se completa esquema DB de Neon en `switchboard/src/registry.js` soportando `workspaces`, `users`, `workspace_memberships`, `tenants`, `agents`, `deployments`, `assignments`, `runs`.
+- Se adapta `switchboard/src/rbac.js` y `src/api/server.js` al uso estricto de nomenclatura `workspace`.
+- Se actualiza persistencia mock inicial en `switchboard/data/registry.json` modelando "Inspiro Agents", "Aliantza" e "Inspiro Agents Web".
+- Tests automatizados `npm --prefix switchboard test` verificados (14/14 pasando).
+- Se cierra `F-202603-10-core-db-domain-completo` en estado `done`.
+- Actualizacion de estado del playbook y READMEs:
+  - `state.md`: plan activo sin F-202603-10 (ya done); persistencia descrita con esquema DB completo y fallback; RBAC por workspace; API publica canonica bajo `core/*` y chat solo en core.
+  - `docs/playbook/README.md`: estructura canonica con `_archive.md`, mapa documental revisado.
+  - `README.md` (raiz): API publica `core/*` en primer plano, variables de entorno de control plane, seccion Playbook y documentacion.
+  - `switchboard/README.md`: retirada documentacion de `POST /api/chat` (endpoint eliminado); chat publico via core `POST /core/relay/chat`; rol de switchboard como modulo interno.
+- Refactor: **switchboard** movido dentro de `src/switchboard/` (registro, rbac, proxy, index, data, test). Imports en `src/api/server.js` actualizados; `REGISTRY_PATH` y `SWITCHBOARD_KEYS_PATH` por defecto apuntan a `./src/switchboard/data/`. Scripts en `package.json`: `switchboard`, `switchboard:dev`, `switchboard:test`; CI workflow actualizado. Carpeta raiz `switchboard/` eliminada.
+- Evaluacion del playbook: (1) F-202603-07: documentado que el PoC funciona y que la integracion definitiva (pi-ai por defecto o sustitucion de legacy) queda para iteracion posterior. (2) Features cerradas consolidadas en `features/_archive.md` (F-01, F-02 dropped, F-03, F-04, F-09, F-10); regla en `features/README.md` sobre archivo. (3) Referencias a API actualizadas: `architecture.md` con API publica canonica `core/*` y `POST /core/relay/chat`, diagramas y matriz RBAC; `core-keys-rotation-runbook.md` con endpoints `GET /core/runs` y `POST /core/relay/chat`.
+- Features archivadas movidas a `features/archive/`: F-01, F-02, F-03, F-04, F-09, F-10. Estructura playbook actualizada (`docs/playbook/README.md`, `features/_archive.md`, `features/README.md`).
+- Decision: no existe producto «gateway»; referencias en playbook pasan a hablar de un **hipotético front-end** o cliente que consuma `core/*`. Actualizados state.md, architecture.md, F-05, F-06, F-08, core-keys-rotation-runbook y README del playbook.
+- Renombrados documentos del playbook: `frontend-gateway-jwt-access-plan.md` -> `frontend-jwt-access-plan.md`, `gateway-bff-integration-v2.md` -> `bff-integration-v2.md`. Referencias actualizadas en architecture, README, F-202603-06 y F-202603-08.
+- Revision de features activas: (1) **F-202603-06**: alineada con F-09; se aclara que el endpoint canónico y el proxy ya existen; el alcance pendiente es que core llame al LLM y los agentes solo devuelvan «qué decir». DoD y backlog en `state.md` actualizados. (2) **F-202603-08**: aclarado que la API a proteger con JWT es `core/*` y que core usa switchboard/rbac para auth; dependencia de F-06 matizada (API ya existe). (3) **F-202603-05**: anadido contexto de que las asignaciones actuales (tenant+agent→deployment) siguen igual; la feature anade promocion/rollback y auditoria.
+
+## 2026-03-03
+
+- Actualizacion estrategica de `docs/playbook/roadmap.md` a version `v0.2` orientada a cierre de `core` como backend de gestion de agentes.
+- Se reemplaza la narrativa original de "Gateway" por una vision canonica centrada en `core/*` como superficie publica unica y `switchboard` como modulo interno.
+- Se documenta analisis de desviacion/evolucion del plan (v0.1 -> v0.2): avances acelerados en API canonica, RBAC y persistencia; complejidades nuevas en auth dual (core-key/JWT), cambio de dominio y contrato runtime de F-06.
+- Se agrega matriz de gap de cierre y plan de ejecucion por fases cortas (`C0`, `C1`, `C2`) con gates de salida para priorizar decisiones y reducir riesgo de salida cloud.
+- Realineacion operativa del `state.md` contra `roadmap.md` v0.2:
+  - el plan activo queda acotado a Fase C0 (cerrar contratos de `F-202603-08`, `F-202603-06` y `F-202603-05`),
+  - se explicita gate de salida C0: las tres features deben quedar en `ready` antes de iniciar C1.
+- Se limpia el backlog no comprometido para evitar mezclar entregables de C1/C2 dentro del plan activo; salida cloud se mantiene como paquete posterior (C2).
+- Cierre documental C0 de `F-202603-08` (JWT para hipotético front-end):
+  - contrato de claims normalizado a naming canonico (`allowedWorkspaces`, `defaultWorkspaceId`),
+  - parametros de validacion fijados (`issuer`, `audience`, `jwks`) y regla de compatibilidad temporal para claims legacy,
+  - artefactos de referencia ajustados a `docs/frontend-jwt-access-plan.md` y `docs/core-contract-v1.md`.
+- `F-202603-08-switchboard-jwt-user-auth-frontend-gateway` pasa de `candidate` a `validated` y luego a `ready` para ejecucion en C1.
+- Cierre documental C0 de `F-202603-06` (core BFF agent proxy):
+  - se congela contrato logico core -> runtime para flujo "runtime devuelve que decir; core llama LLM",
+  - se fija compatibilidad transitoria para deployments legacy durante C1,
+  - se ajustan artefactos de referencia a `docs/bff-integration-v2.md` y `docs/core-contract-v1.md`.
+- `F-202603-06-core-bff-agent-proxy` pasa de `candidate` a `validated` y luego a `ready` para ejecucion en C1.
+- Cierre documental C0 de `F-202603-05` (promotion/rollback + auditoria):
+  - se define evento auditable minimo (`from/to`, actor, motivo, resultado, health-check, timestamp),
+  - se congelan endpoints objetivo para C1 (promote, rollback, consulta de auditoria por rango),
+  - se fija regla de rollback inmediato al deployment anterior.
+- `F-202603-05-switchboard-assignment-promotion-audit` pasa de `inbox` a `candidate`, `validated` y `ready` para ejecucion en C1.
+- `state.md` se actualiza para reflejar cierre del gate C0 (las tres features clave en `ready`) y cambio de plan activo al inicio de C1 con gate de salida por feature.
+- Se corrigen referencias de artefactos canonicos en `state.md` hacia rutas vigentes en `docs/` raiz (`core-contract-v1.md`, `core-keys-rotation-runbook.md`).
+- Se alinea `architecture.md` con contrato C0 de JWT (`allowedWorkspaces`) y con rutas vigentes de artefactos en `docs/` raiz.
+- Firma por defecto de Core actualizada en `src/tracing/signature.js` segun `docs/core-signature.md`:
+  - arte ASCII canonico (ENNUI/core con contraste inverso),
+  - linea «ennui core · github.com/alvaroemur», agente por defecto y lineas ↳ core v0.1, → ennui-core v0.1, → LLM,
+  - version unica `CORE_VERSION = "0.1"` en todo el modulo.
+- Reorganizacion estructural de `src/` para reducir archivos sueltos y agrupar por dominio:
+  - `src/agent-config/loader.js` (carga de config de agentes),
+  - `src/runtime/loader.js` (resolucion de runtime por `runtimeId`),
+  - `src/tracing/signature.js` (firma/fingerprint),
+  - `src/llm/core.js` y `src/llm/pi-ai.js` (implementacion LLM y adaptador PoC).
+- Se eliminan wrappers/archivos legacy ya innecesarios en raiz de `src/`:
+  - `src/config-loader.js`, `src/runtime-loader.js`, `src/signature.js`,
+  - `src/llm.js`, `src/llm-pi-ai.js`.
+- `package.json` exports se alinean a rutas finales:
+  - `./config` -> `./src/agent-config/loader.js`,
+  - `./llm` -> `./src/llm/core.js`.
+- Limpieza de superficie de chat:
+  - retiro definitivo de `POST /api/chat` del servidor publico,
+  - endpoint interno de ejecucion en `POST /core/runtime/chat`,
+  - proxy de relay actualizado para reenviar a `/core/runtime/chat` con `tenantId`.
+- Configuracion de agentes consolidada en DB; repo queda sin `config.json` de agentes.
+- Validaciones tecnicas post-limpieza:
+  - imports ESM verificados en modulos reorganizados,
+  - `npm run switchboard:test` OK (14/14),
+  - sin errores de linter en archivos modificados.
+- Apply (evaluacion playbook): materializacion de ajustes recomendados:
+  - `architecture.md`: referencia a contrato canonico corregida a `docs/core-contract-v1.md`; objetivo RBAC por workspace (no accountId); default de `SWITCHBOARD_KEYS_PATH` aclarado (path relativo al modulo, p. ej. `src/switchboard/data/core-keys.json`).
+  - `docs/playbook/README.md`: arbol canonico sin contrato/runbook dentro de playbook; anadida nota de que artefactos viven en `docs/` raiz; mapa documental con rutas `docs/` explicitas.
+  - `state.md`: anadida frase de config de agentes en DB y ausencia de `config.json` por agente.
+- Continuidad en `roadmap.md` para cierre acelerado:
+  - se sincroniza la seccion de fases con estado real (`C0` cerrada, `C1` activa),
+  - se agrega plan acelerado por olas para C1 (dias 1-10) con regla de no ampliar alcance,
+  - se acota la seccion de decisiones pendientes a minimos no bloqueantes y se define cadencia de seguimiento diaria para terminar C1 rapidamente.
+- Cierre de decisiones ejecutivas C1 en `roadmap.md` (A/B/B/C):
+  - orden confirmado de ejecucion secuencial `F-08` -> `F-06` -> `F-05`,
+  - fallback en prod solo para degradacion de emergencia, con alerta y retorno a DB,
+  - observabilidad minima acordada en nivel B (`runId`, estado, latencia, provider, tokens, costo estimado + SLO/alertas base),
+  - freeze de `core/*` v1.1 fijado al cierre de C1.
+- Enfoque operativo del playbook actualizado en `state.md`:
+  - `F-202603-08` pasa a foco inmediato de C1 y se marca `in_progress`,
+  - `F-202603-06` y `F-202603-05` quedan `ready` para ejecucion secuencial posterior,
+  - backlog ajustado para implementar (no redefinir) fallback y observabilidad ya acordados.
+- `F-202603-08-switchboard-jwt-user-auth-frontend-gateway` se actualiza a `in_progress` para habilitar primero consumo frontend por JWT en `core/*`.
