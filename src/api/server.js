@@ -1,12 +1,13 @@
 /**
- * core HTTP API: POST /api/chat, GET /health, GET /api/config.
+ * core HTTP API: GET /health, GET /api/config, POST /core/runtime/chat.
  * Config from CONFIG_DIR (+ optional .core-config).
  * Optional auth via CORE_API_KEY/API_KEY and/or .core-config/core.json deployToken.
  */
 
+import "dotenv/config";
 import http from "http";
 import { handleAgentChat } from "./routes/agent-chat.js";
-import { loadAgentConfig, listAgentIds } from "../config-loader.js";
+import { loadAgentConfig, listAgentIds } from "../agent-config/loader.js";
 import { requireApiKey, requireDeployToken } from "../auth/index.js";
 import {
     AuthHttpError,
@@ -20,14 +21,14 @@ import {
     toPublicCoreConfig,
     toPublicSubaccountConfig,
 } from "../core-config/index.js";
-import * as reg from "../../switchboard/src/registry.js";
-import { forwardChat } from "../../switchboard/src/proxy.js";
-import { authenticateRequest, canRead, canUseChat, getPrincipalAccountId, isAdmin } from "../../switchboard/src/rbac.js";
+import * as reg from "../switchboard/registry.js";
+import { forwardChat } from "../switchboard/proxy.js";
+import { authenticateRequest, canRead, canUseChat, getPrincipalWorkspaceId, isAdmin } from "../switchboard/rbac.js";
 import { randomUUID } from "crypto";
 
 const PORT = Number(process.env.PORT) || 3000;
 const CONFIG_DIR = process.env.CONFIG_DIR || "/app/config";
-const REGISTRY_PATH = process.env.REGISTRY_PATH || "./switchboard/data/registry.json";
+const REGISTRY_PATH = process.env.REGISTRY_PATH || "./src/switchboard/data/registry.json";
 
 reg.setRegistryPath(REGISTRY_PATH);
 try {
@@ -67,7 +68,7 @@ const server = http.createServer(async (req, res) => {
     const path = url.pathname;
 
     const auth = await authenticateRequest(req, {
-        getAccountById: reg.getAccount,
+        getWorkspaceById: reg.getWorkspace,
     });
     const principal = auth.principal;
 
@@ -201,21 +202,22 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    if (req.method === "POST" && path === "/api/chat") {
-        const body = await parseBody(req);
-        await handleAgentChat(req, res, {
-            body,
-            CORS_HEADERS,
-            jsonResponse: (res, code, data, h) => jsonResponse(res, code, data, h),
-        });
-        return;
-    }
-
     // --- NEW /core/* ROUTES ---
     if (path.startsWith("/core/")) {
         // GET /core/health
         if (req.method === "GET" && path === "/core/health") {
             jsonResponse(res, 200, { ok: true });
+            return;
+        }
+
+        // POST /core/runtime/chat
+        if (req.method === "POST" && path === "/core/runtime/chat") {
+            const body = await parseBody(req);
+            await handleAgentChat(req, res, {
+                body,
+                CORS_HEADERS,
+                jsonResponse: (res, code, data, h) => jsonResponse(res, code, data, h),
+            });
             return;
         }
 
@@ -239,12 +241,12 @@ const server = http.createServer(async (req, res) => {
                 jsonResponse(res, 401, { error: "unauthorized" });
                 return;
             }
-            const accounts = await reg.listAccounts();
+            const workspaces = await reg.listWorkspaces();
             if (isAdmin(principal)) {
-                jsonResponse(res, 200, accounts);
+                jsonResponse(res, 200, workspaces);
                 return;
             }
-            const allowed = accounts.filter(a => canRead(principal, a.id));
+            const allowed = workspaces.filter(w => canRead(principal, w.id));
             jsonResponse(res, 200, allowed);
             return;
         }
@@ -299,13 +301,13 @@ const server = http.createServer(async (req, res) => {
             }
             const q = url.searchParams;
             const requestedWorkspaceId = q.get("workspaceId");
-            const scopedAccountId = getPrincipalAccountId(principal);
-            if (!isAdmin(principal) && requestedWorkspaceId && requestedWorkspaceId !== scopedAccountId) {
+            const scopedWorkspaceId = getPrincipalWorkspaceId(principal);
+            if (!isAdmin(principal) && requestedWorkspaceId && requestedWorkspaceId !== scopedWorkspaceId) {
                 jsonResponse(res, 403, { error: "forbidden" });
                 return;
             }
             const data = await reg.listRuns({
-                accountId: isAdmin(principal) ? requestedWorkspaceId : (scopedAccountId || null),
+                workspaceId: isAdmin(principal) ? requestedWorkspaceId : (scopedWorkspaceId || null),
                 tenantId: q.get("tenantId"),
                 agentId: q.get("agentId"),
                 deploymentId: q.get("deploymentId"),
@@ -333,7 +335,7 @@ const server = http.createServer(async (req, res) => {
                 jsonResponse(res, 404, { error: "not_found" });
                 return;
             }
-            if (!canRead(principal, run.accountId)) {
+            if (!canRead(principal, run.workspaceId)) {
                 jsonResponse(res, 403, { error: "forbidden" });
                 return;
             }
@@ -372,7 +374,7 @@ const server = http.createServer(async (req, res) => {
 
                 await reg.createRun({
                     runId,
-                    accountId: workspaceId,
+                    workspaceId,
                     tenantId,
                     agentId,
                     deploymentId: null,
@@ -414,6 +416,7 @@ const server = http.createServer(async (req, res) => {
 
                 const forwardBody = JSON.stringify({
                     agentId,
+                    tenantId,
                     messages,
                     metadata
                 });

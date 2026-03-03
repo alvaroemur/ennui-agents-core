@@ -1,18 +1,21 @@
 # core
 
-Paquete base para agentes: runtimes, llamadas LLM, auth opcional por API key, persistence, API HTTP y CLI.
+Paquete base para agentes: runtimes, llamadas LLM, auth por core-key (M2M) o JWT de usuario, persistence, API HTTP unificada bajo `core/*` y CLI.
+
+La API pública canónica está bajo el prefijo **`/core/*`** (contrato v1). El módulo **switchboard** es interno (control plane: workspaces, tenants, agentes, asignaciones, runs). Ver `docs/playbook/state.md` y `docs/playbook/core-contract-v1.md`.
 
 ## Contenido
 
 | Parte | Descripción |
 |---|---|
-| `src/` | Runtime `general` y `collector`, `config-loader`, API HTTP, auth, persistence |
+| `src/` | Orquestación de runtimes, `config-loader` (DB), API HTTP (incl. rutas `core/*`), auth, persistence |
 | `src/llm-proxy/` | Wrapper de LLM con monitoreo de tráfico y masking de datos sensibles |
-| `agents/` | Configuración de agentes (`config.json` por agente) |
+| `agents/` | Lógica de runtimes (`consultor`, `collector`) |
 | `.core-config/` | Configuración externa del deploy (`core.json` + subcuentas/agentes) |
 | `bin/` | CLI (`core list`, `core health`) |
-| `switchboard/` | Switchboard y scripts relacionados |
+| `src/switchboard/` | Módulo interno: registro (workspaces, tenants, agentes, deployments, assignments, runs), RBAC, proxy de chat |
 | `k8s/` | Manifiestos para deployment |
+| `docs/playbook/` | Estado, contrato público v1, runbooks y features |
 
 ## Requisitos
 
@@ -35,63 +38,55 @@ import {
 ## API HTTP
 
 ```bash
-# recomendado en local
+# recomendado en local (libera el puerto 3000 si ya está en uso)
 CONFIG_DIR=. npm run dev
+
+# recarga automática al guardar cambios en src/
+npm run dev:watch
 
 # modo start (por defecto espera CONFIG_DIR=/app/config)
 npm run start
 ```
 
-Endpoints principales:
+### API pública canónica (`core/*`)
 
-- `GET /health` y `GET /`
-- `GET /api/config`
-- `GET /api/config/core`
-- `GET /api/config/subaccounts`
-- `GET /api/config/agents/:agentId/config.json`
-- `POST /api/chat`
-- `GET /api/auth/google/config`
-- `GET /api/auth/google/url?redirectUri=...&state=...`
-- `POST /api/auth/google/login`
+Autenticación: `Authorization: Bearer <core-key>` o `X-API-Key` (M2M), o `Authorization: Bearer <user-jwt>`. Scope por workspace. Contrato: `docs/playbook/core-contract-v1.md`.
 
-Ejemplo de request a chat:
+| Método y ruta | Descripción |
+|---------------|-------------|
+| `GET /core/health` | Health check |
+| `GET /core/me` | Sesión (rol, workspaceId, allowedWorkspaces) |
+| `GET /core/workspaces` | Lista de workspaces del principal |
+| `GET /core/workspaces/:workspaceId/tenants` | Tenants del workspace |
+| `GET /core/tenants/:tenantId/agents` | Agentes asignados al tenant |
+| `GET /core/runs` | Lista de runs (filtros: workspaceId, tenantId, agentId, etc.) |
+| `GET /core/runs/:runId` | Detalle de un run |
+| `POST /core/relay/chat` | Chat orquestado: resuelve tenant+agent → deployment y reenvía al runtime |
+
+Ejemplo de request a **`POST /core/relay/chat`**:
 
 ```json
 {
-  "agentId": "consultor",
+  "workspaceId": "inspiro-agents",
+  "tenantId": "aliantza",
+  "agentId": "aliantza-compras",
   "messages": [
     { "role": "user", "parts": [{ "text": "Hola" }] }
   ],
-  "signature": "Opcional: firma del cliente (bloque ```...``` o texto plano).",
-  "appendSystemPrompt": "Opcional",
-  "preferredProvider": "openai"
+  "metadata": { "sessionId": "sess-123", "channel": "web" }
 }
 ```
 
-Comportamiento de firma en `POST /api/chat`:
+Response incluye `text`, `provider`, `usage` y `trace` (p. ej. `runId`, `fingerprint`). Header de correlación: `X-Run-Id`.
 
-- Si el cliente envía `signature`, se usa esa firma.
-- Si el prompt del agente ya inicia con una firma, se respeta.
-- Si no hay firma, Core inyecta una firma por defecto (`core gateway backend`) como boilerplate para front-ends.
-- En todos los casos se agrega metadata de ejecución con `fingerprint` para trazabilidad.
-- El `fingerprint` soporta prefijo configurable por deploy (`CORE_FINGERPRINT_PREFIX` o `.core-config/core.json` en `tracing.fingerprintPrefix`).
-- Detalle del formato/base: `docs/core-signature.md`.
+### Otros endpoints
 
-El response incluye `trace` con datos de seguimiento:
+- `GET /health`, `GET /` — health legacy
+- `GET /api/config`, `GET /api/config/core`, `GET /api/config/subaccounts`, `GET /api/config/agents/:agentId/config.json` — configuración
+- `POST /core/runtime/chat` — endpoint interno de ejecución de runtime (llamado por relay/deployments)
+- `GET /api/auth/google/config`, `GET /api/auth/google/url`, `POST /api/auth/google/login` — OAuth Google para JWT de usuario
 
-```json
-{
-  "text": "...",
-  "provider": "openai",
-  "trace": {
-    "fingerprint": "ia-gateway-2f3c9d0a14f8b7e1",
-    "fingerprintPrefix": "ia-gateway-",
-    "runId": "core-4f8b7e1",
-    "env": "production",
-    "signatureSource": "core-default"
-  }
-}
-```
+Comportamiento de firma en chat (relay y `/core/runtime/chat`): si el cliente envía `signature` se usa; si no, se respeta la del agente o se inyecta una por defecto. Se añade metadata con `fingerprint` (configurable con `CORE_FINGERPRINT_PREFIX` o `.core-config/core.json` → `tracing.fingerprintPrefix`). Ver `docs/core-signature.md`.
 
 ## Variables de entorno
 
@@ -101,46 +96,43 @@ Generales:
 - `CONFIG_DIR`
 - `CORE_CONFIG_DIR` (default: `${CONFIG_DIR}/.core-config`)
 - `CORE_ENV` (default: `dev`; valor usado en metadata de firma)
-- `CORE_FINGERPRINT_PREFIX` (opcional; prefijo para `trace.fingerprint`, ej. `ia-gateway-`)
-- `CORE_API_KEY` o `API_KEY` (si está definido, la API exige auth)
+- `CORE_FINGERPRINT_PREFIX` (opcional; prefijo para `trace.fingerprint`, ej. `my-app-`)
+- `CORE_API_KEY` o `API_KEY` (opcional; si está definido, la API exige auth)
 
-Auth de requests (cuando hay API key):
+Auth de requests:
 
-- Header `X-API-Key: <key>`
-- o `Authorization: Bearer <key>`
+- Header `X-API-Key: <key>` o `Authorization: Bearer <key>` (core-key para M2M; o JWT de usuario si está habilitado)
 
 Auth de deploy (opcional desde `.core-config/core.json`):
 
-- Si `auth.deployToken` está definido, Core exige el header configurado en `auth.headerName`
-- Header por defecto: `x-core-deploy-token`
+- Si `auth.deployToken` está definido, Core exige el header configurado en `auth.headerName` (por defecto: `x-core-deploy-token`)
+
+Control plane (RBAC y registro, módulo interno switchboard):
+
+- `SWITCHBOARD_RBAC_ENABLED` (default: `true`)
+- `SWITCHBOARD_KEYS_PATH` (default en módulo: `src/switchboard/data/core-keys.json`) — archivo de core-keys por workspace
+- `SWITCHBOARD_DATABASE_URL` (opcional) — Postgres/Neon; si existe, el registro usa DB; si no, fallback a `registry.json`
+- `REGISTRY_PATH` (default: `./src/switchboard/data/registry.json`) — registro cuando no hay DB
+
+JWT de usuario (opcional, para `core/me` y scope por workspace):
+
+- `SWITCHBOARD_AUTH_JWT_ENABLED`, `SWITCHBOARD_AUTH_JWT_SECRET`, `SWITCHBOARD_AUTH_JWT_ISSUER`, `SWITCHBOARD_AUTH_JWT_AUDIENCE`
 
 Google OAuth (login de usuario + emisión de JWT interno):
 
-- `CORE_AUTH_GOOGLE_ENABLED` (default: `false`)
-- `CORE_AUTH_GOOGLE_CLIENT_ID` (requerido cuando OAuth está activo)
-- `CORE_AUTH_GOOGLE_CLIENT_SECRET` (requerido para intercambio `code -> id_token`)
-- `CORE_AUTH_GOOGLE_REDIRECT_URI` (opcional; fallback de `redirectUri`)
-- `CORE_AUTH_GOOGLE_SCOPES` (opcional; CSV, default `openid,email,profile`)
-- `CORE_AUTH_GOOGLE_ALLOWED_HOSTED_DOMAINS` (opcional; CSV de dominios de Google Workspace)
-- `CORE_AUTH_GOOGLE_ADMIN_EMAILS` (CSV de emails permitidos como `admin-tecnico`)
-- `CORE_AUTH_GOOGLE_ALLOW_ANY_ADMIN` (default: `false`; solo para entornos de desarrollo)
-- `CORE_AUTH_JWT_SECRET` (requerido para firmar JWT interno)
-- `CORE_AUTH_JWT_ISSUER` (default: `core-auth`)
-- `CORE_AUTH_JWT_AUDIENCE` (default: `core-switchboard`)
-- `CORE_AUTH_JWT_TTL_SEC` (default: `3600`)
-- `CORE_AUTH_ADMIN_ALLOWED_ACCOUNTS` (opcional; CSV para claim `allowedAccounts`)
-- `CORE_AUTH_DEFAULT_ACCOUNT_ID` (opcional; fallback de `defaultAccountId`)
+- `CORE_AUTH_GOOGLE_ENABLED`, `CORE_AUTH_GOOGLE_CLIENT_ID`, `CORE_AUTH_GOOGLE_CLIENT_SECRET`, `CORE_AUTH_GOOGLE_REDIRECT_URI`, `CORE_AUTH_GOOGLE_SCOPES`, `CORE_AUTH_GOOGLE_ALLOWED_HOSTED_DOMAINS`, `CORE_AUTH_GOOGLE_ADMIN_EMAILS`, `CORE_AUTH_JWT_SECRET`, etc. (ver `.env.example`)
 
-LLM providers (cualquiera de estas):
+LLM providers (al menos uno):
 
-- `OPENAI_API_KEY` o `OPENAI_KEY`
-- `GEMINI_API_KEY` o `GEMINI_KEY`
-- `OPENROUTER_API_KEY` o `OPENROUTER_KEY`
+- `OPENAI_API_KEY` o `OPENAI_KEY`, `GEMINI_API_KEY` o `GEMINI_KEY`, `OPENROUTER_API_KEY` o `OPENROUTER_KEY`
 
 Proxy y monitoreo de tráfico LLM:
 
-- `LLM_PROXY_URL`: si existe, `callLLM` reenvía ahí en lugar de llamar directo a providers
-- `LLM_TRAFFIC_MONITOR_ENABLED` (default: `true`; desactiva con `false`, `0`, `off`, `no`)
+- `LLM_PROXY_URL` — si existe, `callLLM` reenvía ahí
+- `LLM_TRAFFIC_MONITOR_ENABLED` (default: `true`)
+- `USE_PI_AI` — si está en `true`/`1`, las llamadas LLM usan el adaptador `@mariozechner/pi-ai` (PoC; ver F-202603-07)
+
+Detalle de variables de switchboard (CRUD registro, runs, tests): `src/switchboard/README.md`. Rotación de core-keys: `docs/playbook/core-keys-rotation-runbook.md`.
 
 ## Modelo de configuración externa (`.core-config`)
 
@@ -164,6 +156,13 @@ core health
 ```
 
 Para `core health` se usa `CORE_API` (default: `http://localhost:3000`).
+
+## Playbook y documentación
+
+- **Estado y plan**: `docs/playbook/state.md`
+- **Contrato público API**: `docs/playbook/core-contract-v1.md`
+- **Rotación de core-keys**: `docs/playbook/core-keys-rotation-runbook.md`
+- **Switchboard** (interno): `src/switchboard/README.md`
 
 ## Kubernetes y Docker
 

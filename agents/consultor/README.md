@@ -1,6 +1,6 @@
 # Agente: consultor
 
-Consultor experto de Inspiro Agents. Tipo **general** (chat): systemPrompt, contactContext, followUpPrompt, ventaPrompt.
+Consultor experto de Inspiro Agents. Runtime: `consultor`.
 
-- **config.json**: definición del agente (prompts, mensaje de bienvenida, reglas).
-- **skills/**: (opcional) habilidades o prompts adicionales por contexto.
+- La configuración vive en DB (`switchboard_agents.data.tenantConfigs.inspiro-agents-web`) para el agente `consultor-ia`.
+- `runtimeId` esperado: `consultor`.

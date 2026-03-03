@@ -12,6 +12,7 @@ Este directorio gestiona el ciclo de maduracion de features.
 - Cada feature usa un archivo propio `F-YYYYMM-NN-slug-corto.md`.
 - El archivo de feature debe registrar cambios de estado y decisiones clave.
 - Evitar duplicidad: detalles de feature viven en su propio archivo.
+- Features cerradas (`done`/`dropped`) se consolidan en `_archive.md` y sus archivos `F-*.md` se mueven a **`features/archive/`** para consulta e historial.
 
 ## Rubrica de madurez (4 criterios)
 

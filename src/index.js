@@ -3,32 +3,24 @@
  * Usable as installed package or via API server.
  */
 
-import * as general from "./general.js";
-import * as collector from "./collector.js";
 import { callLLM as callLLMProxy } from "./llm-proxy/index.js";
 import { createPersistence } from "./persistence/index.js";
-import { listAgentIds, loadAgentConfig } from "./config-loader.js";
+import { listAgentIds, loadAgentConfig } from "./agent-config/loader.js";
+import { loadRuntime } from "./runtime/loader.js";
 import {
     composeSystemPromptWithSignature,
     createExecutionFingerprint,
-} from "./signature.js";
+} from "./tracing/signature.js";
 
-export { buildSystemPrompt as buildGeneralSystemPrompt } from "./general.js";
-export {
-    buildSystemPrompt as buildCollectorSystemPrompt,
-    parsePayload as parseCollectorPayload,
-    stripPayloadForDisplay as stripCollectorPayloadForDisplay,
-    computeCompletion as computeCollectorCompletion,
-    validatePayload as validateCollectorPayload,
-} from "./collector.js";
 export { callLLM } from "./llm-proxy/index.js";
-export { convertToOpenAIMessages } from "./llm.js";
+export { convertToOpenAIMessages } from "./llm/core.js";
 export {
     composeSystemPromptWithSignature,
     createExecutionFingerprint,
-} from "./signature.js";
+} from "./tracing/signature.js";
 export { createPersistence } from "./persistence/index.js";
-export { listAgentIds, loadAgentConfig } from "./config-loader.js";
+export { listAgentIds, loadAgentConfig } from "./agent-config/loader.js";
+export { loadRuntime as loadAgentRuntime } from "./runtime/loader.js";
 export { getRequiredApiKey, getApiKeyFromRequest, requireApiKey } from "./auth/index.js";
 export {
     getCoreConfigDir,
@@ -40,31 +32,45 @@ export {
     getDeployAuthConfig,
 } from "./core-config/index.js";
 
-/**
- * Resolve runtime for an agent config (general vs collector).
- */
-export function getRuntime(config) {
-    const type = config?.agentType ?? (config?.id ? "collector" : "general");
-    if (type === "general") {
-        return {
-            buildSystemPrompt: general.buildSystemPrompt,
-        };
+function resolveAgentId(inputAgentId, config) {
+    if (typeof inputAgentId === "string" && inputAgentId.trim()) return inputAgentId.trim();
+    if (typeof config?.agentId === "string" && config.agentId.trim()) return config.agentId.trim();
+    if (typeof config?.id === "string" && config.id.trim()) return config.id.trim();
+    throw new Error("Missing agentId for runtime resolution");
+}
+
+function resolveRuntimeId(agentId, config) {
+    if (typeof config?.runtimeId === "string" && config.runtimeId.trim()) {
+        return config.runtimeId.trim();
     }
-    return {
-        buildSystemPrompt: collector.buildSystemPrompt,
-        parsePayload: collector.parsePayload,
-        stripPayloadForDisplay: collector.stripPayloadForDisplay,
-        computeCompletion: collector.computeCompletion,
-    };
+    return resolveAgentId(agentId, config);
 }
 
 /**
- * Single entry point: build prompt, call LLM, parse payload if collector.
+ * Resolve runtime for an agent, honoring config.runtimeId when present.
  */
-export async function respond({ config, messages, apiKeys, persistence, signature, trace = {} }) {
-    const runtime = getRuntime(config);
+export async function getRuntime(agentId, config = null) {
+    return loadRuntime(resolveRuntimeId(agentId, config));
+}
+
+/**
+ * Single entry point: build prompt, call LLM, parse payload when runtime supports it.
+ */
+export async function respond({
+    agentId,
+    config,
+    messages,
+    apiKeys,
+    persistence,
+    signature,
+    trace = {},
+}) {
+    const resolvedAgentId = resolveAgentId(agentId, config);
+    const runtime = await getRuntime(resolvedAgentId, config);
     const basePrompt = runtime.buildSystemPrompt(config);
-    const env = String(trace?.env || process.env.CORE_ENV || process.env.NODE_ENV || "dev").trim() || "dev";
+    const env =
+        String(trace?.env || process.env.CORE_ENV || process.env.NODE_ENV || "dev").trim() ||
+        "dev";
     const fingerprintPrefix =
         typeof trace?.fingerprintPrefix === "string" && trace.fingerprintPrefix.trim()
             ? trace.fingerprintPrefix.trim()
@@ -73,7 +79,7 @@ export async function respond({ config, messages, apiKeys, persistence, signatur
         typeof trace?.fingerprint === "string" && trace.fingerprint.trim()
             ? trace.fingerprint.trim()
             : createExecutionFingerprint({
-                  agentId: config?.id || config?.agentType || "general",
+                  agentId: resolvedAgentId,
                   preferredProvider: apiKeys?.preferredProvider,
                   messageCount: Array.isArray(messages) ? messages.length : 0,
                   requestId: trace?.requestId,
@@ -90,7 +96,7 @@ export async function respond({ config, messages, apiKeys, persistence, signatur
         env,
         runId,
         fingerprint,
-        agentLine: `CORE GATEWAY BACKEND · ${config?.id || "agent"}`,
+        agentLine: `CORE GATEWAY BACKEND · ${resolvedAgentId}`,
     });
     const systemPrompt = signatureResult.systemPrompt;
     const responseTrace = {

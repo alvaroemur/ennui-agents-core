@@ -3,7 +3,7 @@
  * This module is the single entry point for model traffic inside core.
  */
 
-import { callLLM as callLLMReal } from "../llm.js";
+import { callLLM as callLLMReal } from "../llm/core.js";
 import { createTrafficMonitor } from "./monitor.js";
 import { maskForTelemetry } from "./mask.js";
 
@@ -62,7 +62,7 @@ async function forwardToHttpProxy(proxyUrl, payload) {
 }
 
 /**
- * Same contract as src/llm.js callLLM.
+ * Same contract as src/llm/core.js callLLM.
  * If LLM_PROXY_URL exists, forwards payload to that URL instead of direct providers.
  */
 export async function callLLM(payload) {

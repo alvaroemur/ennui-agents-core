@@ -1,14 +1,14 @@
 /**
- * POST /api/chat — same contract as agents-api. Uses core runtimes + llm.
+ * POST /core/runtime/chat — runtime execution endpoint used by relay.
  */
 
 import { getRuntime, callLLM } from "../../index.js";
-import { loadAgentConfig, listAgentIds } from "../../config-loader.js";
+import { loadAgentConfig, listAgentIds } from "../../agent-config/loader.js";
 import { getFingerprintPrefix, loadCoreConfig } from "../../core-config/index.js";
 import {
     composeSystemPromptWithSignature,
     createExecutionFingerprint,
-} from "../../signature.js";
+} from "../../tracing/signature.js";
 
 function sanitizeApiKey(k) {
     if (typeof k !== "string") return "";
@@ -32,18 +32,18 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
         return;
     }
 
-    const { agentId, messages, appendSystemPrompt, preferredProvider, signature } = body;
+    const { agentId, tenantId, messages, appendSystemPrompt, preferredProvider, signature } = body;
     if (!agentId || typeof agentId !== "string" || !agentId.trim()) {
         let allowed = [];
         try {
-            allowed = await listAgentIds();
+            allowed = await listAgentIds({ tenantId });
         } catch (_) {}
         jsonResponse(res, 400, { error: "Missing or invalid agentId", allowed });
         return;
     }
     let allowedIds = [];
     try {
-        allowedIds = await listAgentIds();
+        allowedIds = await listAgentIds({ tenantId });
     } catch (_) {}
     if (allowedIds.length > 0 && !allowedIds.includes(agentId)) {
         jsonResponse(res, 400, { error: "Unknown agentId", allowed: allowedIds });
@@ -56,7 +56,7 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
 
     let config;
     try {
-        config = await loadAgentConfig(agentId);
+        config = await loadAgentConfig(agentId, { tenantId });
     } catch (e) {
         jsonResponse(res, 502, { error: "Failed to load agent config", detail: e?.message || String(e) });
         return;
@@ -102,7 +102,7 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
     }
 
     try {
-        const runtime = getRuntime(config);
+        const runtime = await getRuntime(agentId, config);
         let systemPrompt = runtime.buildSystemPrompt(config);
         if (appendSystemPrompt && typeof appendSystemPrompt === "string" && appendSystemPrompt.trim()) {
             systemPrompt = systemPrompt + "\n\n" + appendSystemPrompt.trim();

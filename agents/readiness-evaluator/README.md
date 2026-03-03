@@ -1,5 +1,6 @@
 # Agente: readiness-evaluator
 
-Evaluación Agent Readiness. Tipo **collector**: cuestionario guiado, contact + answers + classification.
+Evaluación Agent Readiness. Usa el runtime compartido `collector`.
 
-- **config.json**: questions, contactFields, classificationValues, completionWeights, promptFragments (intro, rules, persistenceInstruction, etc.).
+- La configuración vive en DB (`switchboard_agents.data.tenantConfigs.inspiro-agents-web`).
+- `runtimeId` esperado: `collector`.

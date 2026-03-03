@@ -1,0 +1,110 @@
+{
+  "workspaces": [
+    {
+      "id": "inspiro-agents",
+      "name": "Inspiro Agents",
+      "slug": "inspiro-agents",
+      "status": "active"
+    },
+    {
+      "id": "platform",
+      "name": "Platform",
+      "slug": "platform",
+      "role": "admin-tecnico",
+      "status": "active"
+    }
+  ],
+  "users": [
+    {
+      "id": "admin-1",
+      "email": "admin@inspiro.com",
+      "name": "Admin User"
+    }
+  ],
+  "workspace_memberships": [
+    {
+      "workspaceId": "inspiro-agents",
+      "userId": "admin-1",
+      "role": "admin-tecnico"
+    }
+  ],
+  "tenants": [
+    {
+      "id": "aliantza",
+      "workspaceId": "inspiro-agents",
+      "name": "Aliantza",
+      "slug": "aliantza",
+      "status": "active"
+    },
+    {
+      "id": "inspiro-agents-web",
+      "workspaceId": "inspiro-agents",
+      "name": "Inspiro Agents Web",
+      "slug": "inspiro-agents-web",
+      "status": "active"
+    }
+  ],
+  "agents": [
+    {
+      "id": "aliantza-compras",
+      "type": "chat",
+      "name": "Aliantza-Compras"
+    },
+    {
+      "id": "consultor-ia",
+      "type": "chat",
+      "name": "Consultor IA"
+    },
+    {
+      "id": "roi-calculator",
+      "type": "collector",
+      "name": "Calculadora ROI"
+    },
+    {
+      "id": "readiness-evaluator",
+      "type": "collector",
+      "name": "Evaluación Readiness"
+    },
+    {
+      "id": "support-bot",
+      "type": "chat",
+      "name": "Support Bot"
+    }
+  ],
+  "deployments": [
+    {
+      "id": "core-local",
+      "name": "Core Local",
+      "baseUrl": "http://localhost:3000",
+      "versionTag": "dev"
+    }
+  ],
+  "assignments": [
+    {
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "deploymentId": "core-local"
+    },
+    {
+      "tenantId": "inspiro-agents-web",
+      "agentId": "consultor-ia",
+      "deploymentId": "core-local"
+    },
+    {
+      "tenantId": "inspiro-agents-web",
+      "agentId": "roi-calculator",
+      "deploymentId": "core-local"
+    },
+    {
+      "tenantId": "inspiro-agents-web",
+      "agentId": "readiness-evaluator",
+      "deploymentId": "core-local"
+    },
+    {
+      "tenantId": "inspiro-agents-web",
+      "agentId": "support-bot",
+      "deploymentId": "core-local"
+    }
+  ],
+  "runs": []
+}

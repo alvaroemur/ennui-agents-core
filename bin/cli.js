@@ -27,7 +27,7 @@ async function main() {
     }
     // default: help
     console.log(`core CLI
-  core list     List agent IDs from agents/
+  core list     List configured agent IDs (tenant scope)
   core health   GET /health from API (CORE_API)
   core          This help`);
 }

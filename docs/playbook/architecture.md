@@ -5,7 +5,7 @@
 Definir una vista unica y canonica de la arquitectura `core + switchboard`, alineada con:
 
 - contrato de integracion `switchboard <-> core` v1,
-- RBAC v2 multi-tenant por `accountId`,
+- RBAC v2 multi-tenant por workspace (`workspaceId` / `allowedWorkspaces`),
 - estado operativo registrado en `avance.md`.
 
 Este documento reemplaza y consolida la documentacion previa separada de:
@@ -16,59 +16,58 @@ Este documento reemplaza y consolida la documentacion previa separada de:
 
 ## Sistema y limites
 
-- `core` (data plane): ejecuta agentes y expone `/health`, `/api/chat`, `/api/config`.
-- `switchboard` (control plane): autentica, autoriza, enruta por tenant y registra runs.
-- `gateway` (cliente externo): UI + gestion de sus tenants; consume `switchboard`.
+- **`core`**: unica superficie publica. Expone `core/*` (health, me, workspaces, tenants, agents, runs, **POST /core/relay/chat**). Integra internamente el modulo switchboard (registro, RBAC) y el runtime de agentes.
+- **`switchboard`**: modulo **interno** (control plane). Registro (workspaces, tenants, agents, deployments, assignments, runs), RBAC por workspace, resolucion tenant+agent→deployment. No se expone como API publica separada.
+- **Cliente / hipotético front-end**: Cualquier aplicacion (p. ej. SPA) que consuma la API publica de **core** (`POST /core/relay/chat`, `GET /core/runs`, etc.) con core-key (M2M) o JWT de usuario. No hay producto «gateway» en el repo; se habla de un consumidor hipotetico.
 
-`switchboard` vive dentro del repo de `core`, pero se trata como plano de control separado del plano de ejecucion.
+Contrato publico canonico: `docs/core-contract-v1.md`.
 
 ### Diagrama de componentes (estado actual)
 
 ```mermaid
 flowchart LR
-    GW[Gateway] -->|POST /api/chat + core-key + X-Account-Id| SB[Switchboard]
-    SB --> CK[(core-keys.json)]
-    SB --> REG[(registry.json: accounts, assignments, deployments)]
-    SB --> RUNS[(runs)]
-    SB -->|proxy /api/chat| CORE[Core deployment]
-    CORE --> LLM[LLM provider]
-    CORE --> SB
-    SB -->|response + X-Run-Id| GW
+    CL[Cliente / front-end] -->|POST /core/relay/chat + auth| CORE[Core]
+    CORE --> REG[(Registry: workspaces, tenants, agents, assignments, runs)]
+    CORE --> CK[(core-keys / JWT)]
+    CORE -->|forward| RT[Runtime / deployment]
+    RT --> LLM[LLM provider]
+    RT --> CORE
+    CORE -->|response + X-Run-Id| CL
 ```
 
 ## Contrato operativo actual (v1)
 
-### Flujo base de chat
+### Flujo canonico de chat (API publica)
 
-1. `gateway` llama `POST /api/chat` en `switchboard`.
-2. `switchboard` autentica por `core-key` y resuelve `accountId`.
-3. `switchboard` aplica RBAC por rol de `registry.accounts`.
-4. `switchboard` resuelve `accountId + agentId -> deployment.baseUrl`.
-5. `switchboard` crea `run` (`running`) y hace proxy a `{baseUrl}/api/chat`.
-6. `core` responde payload de chat (`text`, `provider`, `usage`, `trace`).
-7. `switchboard` cierra `run` (`success`/`error`) y devuelve `X-Run-Id`.
+1. Cliente (p. ej. un hipotético front-end) llama **`POST /core/relay/chat`** en **core** con auth (core-key o JWT) y body `workspaceId`, `tenantId`, `agentId`, `messages`.
+2. Core autentica y autoriza (RBAC por workspace).
+3. Core usa el registro (switchboard interno) para resolver `tenantId + agentId -> deployment`.
+4. Core crea `run` (`running`) y reenvia a `deployment.baseUrl` (runtime).
+5. Runtime ejecuta agente y LLM; responde a core.
+6. Core cierra `run` (`success`/`error`) y devuelve respuesta con `X-Run-Id`.
 
 ### Responsabilidades por componente
 
-- `switchboard`
-  - Resuelve `accountId + agentId -> deployment`.
-  - Reenvia request a `deployment.baseUrl + /api/chat`.
-  - Registra trazabilidad (`runId`, estado, latencia, errores).
-- `core`
-  - Expone `/health`, `/api/chat`, `/api/config`.
-  - Ejecuta logica de agente y devuelve payload de chat.
-  - No gestiona tenants ni assignments del gateway.
+- **core**
+  - Expone API publica `core/*` (health, me, workspaces, tenants, agents, runs, **POST /core/relay/chat**).
+  - Usa switchboard (interno) para registro y RBAC.
+  - Orquesta runs y reenvio al runtime (deployment).
+- **switchboard** (interno)
+  - Registro: workspaces, tenants, agents, deployments, assignments, runs.
+  - RBAC por workspace; resolucion tenant+agent→deployment.
+  - No expone endpoints publicos; core invoca su logica internamente.
 
-### Payload minimo reenviado a core
+### Payload minimo de `POST /core/relay/chat`
 
 ```json
 {
-  "agentId": "consultor-ia",
+  "workspaceId": "inspiro-agents",
+  "tenantId": "aliantza",
+  "agentId": "aliantza-compras",
   "messages": [
     { "role": "user", "parts": [{ "text": "Hola" }] }
   ],
-  "appendSystemPrompt": "opcional",
-  "preferredProvider": "openai"
+  "metadata": {}
 }
 ```
 
@@ -89,29 +88,29 @@ flowchart LR
 }
 ```
 
-### Secuencia `POST /api/chat` (v1)
+### Secuencia `POST /core/relay/chat` (v1)
 
 ```mermaid
 sequenceDiagram
-    participant G as Gateway
-    participant S as Switchboard
-    participant R as Registry
-    participant C as Core deployment
+    participant G as Cliente / front-end
+    participant C as Core
+    participant R as Registry (interno)
+    participant RT as Runtime (deployment)
 
-    G->>S: POST /api/chat (Authorization, X-Account-Id, agentId, messages)
-    S->>S: authn core-key -> accountId
-    alt key invalida
-        S-->>G: 401
-    else key valida
-        S->>R: resolver rol + assignment + deployment
-        alt sin permiso o sin ruta
-            S-->>G: 403/404
-        else permitido
-            S->>S: crear run (running)
-            S->>C: POST {baseUrl}/api/chat
-            C-->>S: text, provider, usage, trace
-            S->>S: cerrar run (success/error)
-            S-->>G: 200 + X-Run-Id
+    G->>C: POST /core/relay/chat (Authorization, workspaceId, tenantId, agentId, messages)
+    C->>C: authn (core-key o JWT) + authz por workspace
+    alt no autorizado
+        C-->>G: 401/403
+    else autorizado
+        C->>R: resolver assignment + deployment
+        alt no encontrado
+            C-->>G: 404
+        else ok
+            C->>C: crear run (running)
+            C->>RT: POST {baseUrl}/core/runtime/chat (agentId, tenantId, messages, ...)
+            RT-->>C: text, provider, usage, trace
+            C->>C: cerrar run (success/error)
+            C-->>G: 200 + X-Run-Id + body
         end
     end
 ```
@@ -119,91 +118,86 @@ sequenceDiagram
 ### Errores y trazabilidad
 
 - Error de routing/infra: `4xx/5xx` con `error`, `detail`, `runId`.
-- Error downstream core: `502` con `error`, `detail`, `runId`.
-- Correlacion minima: header `X-Run-Id` + consulta en `GET /api/runs/:runId`.
+- Error downstream runtime: `502` con `error`, `detail`, `runId`.
+- Correlacion minima: header `X-Run-Id` + consulta en `GET /core/runs/:runId`.
 
 ## Seguridad y tenancy (RBAC v2)
 
 - Separacion explicita authn/authz:
-  - authn: `core-key` valida acceso de cuenta.
-  - authz: rol se resuelve en `registry.accounts`.
+  - authn: `core-key` (M2M) o JWT de usuario.
+  - authz: rol y `allowedWorkspaces` desde registro o claims JWT.
 - Roles activos:
   - `admin-tecnico`: acceso total.
-  - `operador-cuenta`: lectura + chat en su `accountId`.
-  - `lector-cuenta`: solo lectura en su `accountId` (sin chat).
-- Naming canonico: `accountId`.
-- Compat legacy eliminada: `clientId` (header/body/query) responde `400`.
+  - `operador-cuenta`: lectura + chat en sus workspaces.
+  - `lector-cuenta`: solo lectura en sus workspaces (sin chat).
+- Naming canonico: `workspaceId`, `tenantId` en API publica.
 
-### Matriz RBAC por endpoint
+### Matriz RBAC por endpoint (API publica `core/*`)
 
 | Endpoint | admin-tecnico | operador-cuenta | lector-cuenta |
 |---|---|---|---|
-| `GET /health`, `GET /`, `GET /control` | Allow | Allow | Allow |
-| `GET /api/runs` | Allow (all accounts) | Allow (solo su `accountId`) | Allow (solo su `accountId`) |
-| `GET /api/runs/:runId` | Allow | Allow (si el run es de su `accountId`) | Allow (si el run es de su `accountId`) |
-| `POST /api/chat` | Allow | Allow (si `accountId` coincide) | Deny |
-| `GET /api/registry/accounts` | Allow (all) | Allow (solo su cuenta) | Allow (solo su cuenta) |
-| `GET /api/registry/accounts/:id` | Allow | Allow (solo su cuenta) | Allow (solo su cuenta) |
-| `POST/PATCH/DELETE /api/registry/*` | Allow | Deny | Deny |
-| `GET /api/status` | Allow | Deny | Deny |
-| `GET /api/registry/status` | Allow | Deny | Deny |
+| `GET /core/health` | Allow | Allow | Allow |
+| `GET /core/me` | Allow | Allow | Allow |
+| `GET /core/workspaces` | Allow (all) | Allow (solo sus workspaces) | Allow (solo sus workspaces) |
+| `GET /core/workspaces/:id/tenants` | Allow | Allow (scope workspace) | Allow (scope workspace) |
+| `GET /core/tenants/:id/agents` | Allow | Allow (scope tenant) | Allow (scope tenant) |
+| `GET /core/runs` | Allow (all) | Allow (scope workspace) | Allow (scope workspace) |
+| `GET /core/runs/:runId` | Allow | Allow (si run en su scope) | Allow (si run en su scope) |
+| `POST /core/relay/chat` | Allow | Allow (scope workspace/tenant) | Deny |
 
 ### Configuracion de core-keys
 
 - `SWITCHBOARD_RBAC_ENABLED=true`
 - `SWITCHBOARD_CORE_KEYS=<json-array>`
-- o archivo JSON en `SWITCHBOARD_KEYS_PATH` (default `switchboard/data/core-keys.json`)
+- o archivo JSON en `SWITCHBOARD_KEYS_PATH` (default: path relativo al modulo switchboard, p. ej. `src/switchboard/data/core-keys.json`)
 
 Formato:
 
 ```json
 [
   { "id": "key-platform-01", "label": "Platform Admin", "key": "adm", "accountId": "platform", "status": "active" },
-  { "id": "key-inspiro-01", "label": "Inspiro Gateway", "key": "op1", "accountId": "inspiro-comercial", "status": "active" }
+  { "id": "key-client-01", "label": "Cliente M2M", "key": "op1", "accountId": "inspiro-comercial", "status": "active" }
 ]
 ```
 
 ## Persistencia y despliegue
 
-- Registro primario actual: archivo local (`switchboard/data/registry.json`).
-- Persistencia DB (Neon/Postgres) implementada pero postergada para fase activa.
-- Cuando se usa DB, el schema canonico de runtime es `accounts/account_id` (no `clients/client_id`).
-- Validacion E2E ya ejecutada en local: `switchboard -> core` con runs `success/error`.
-- Baseline de despliegue: Docker/K8s local validado para `core`.
+- Registro: DB Neon/Postgres con esquema completo (workspaces, users, workspace_memberships, tenants, agents, deployments, assignments, runs). Fallback a archivo `registry.json` si no hay DB.
+- Validacion E2E: core con `POST /core/relay/chat`, runs y dominio en DB o fallback.
+- Baseline de despliegue: Docker/K8s local validado para core.
 
 ## Seguridad minima de integracion
 
-- `switchboard` autentica al gateway por `core-key` y resuelve `accountId`.
-- El rol efectivo se obtiene desde `registry.accounts` (RBAC v2).
-- `core` puede protegerse con API key/deploy token.
+- **core** autentica al cliente (front-end con JWT o integracion M2M con core-key) y aplica RBAC por workspace (usando el registro/switchboard interno).
+- El rol y `allowedWorkspaces` se resuelven desde el registro o los claims JWT.
 - Recomendado: TLS y secretos fuera de repositorio.
 
-## Direccion de autenticacion para gateway frontend-only
+## Direccion de autenticacion para un hipotético front-end
 
-Contexto de producto:
+Contexto:
 
-- `gateway` sera frontend puro para administracion de cuenta/tenants/agentes.
-- En frontend no se deben exponer secretos de servicio (`core-key`).
+- Un hipotético front-end (p. ej. SPA) podria administrar cuenta/tenants/agentes consumiendo `core/*`.
+- En el front-end no se deben exponer secretos de servicio (`core-key`); usar JWT de usuario.
 
 Dirección objetivo:
 
 - Authn principal por JWT de usuario (OIDC/OAuth2 PKCE).
-- `switchboard` valida `issuer/audience/jwks` y aplica RBAC por claims (`roles`, `allowedAccounts`).
+- `switchboard` valida `issuer/audience/jwks` y aplica RBAC por claims (`roles`, `allowedWorkspaces`).
 - `core-key` se mantiene para integraciones M2M (no UI).
 
-Referencia de plan: `docs/playbook/frontend-gateway-jwt-access-plan.md` (Fase 0-4).
+Referencia de plan: `docs/frontend-jwt-access-plan.md` (Fase 0-4; redactado para un hipotético front-end).
 
 ## Smoke test minimo
 
-1. `GET {core}/health` devuelve `200` y `ok=true`.
-2. `POST {switchboard}/api/chat` con `X-Account-Id` valido devuelve `X-Run-Id`.
-3. `GET {switchboard}/api/runs/{runId}` devuelve `success` o `error`.
+1. `GET /core/health` devuelve `200` y `ok=true`.
+2. `POST /core/relay/chat` con auth (core-key o JWT) y body valido (workspaceId, tenantId, agentId, messages) devuelve respuesta con `X-Run-Id`.
+3. `GET /core/runs/{runId}` devuelve el run (`success` o `error`).
 
 ## Direccion de evolucion (backlog activo)
 
 Feature `F-202603-06-core-bff-agent-proxy` define la siguiente iteracion:
 
-- Nuevo endpoint de BFF que sustituye `POST /api/chat` (migracion controlada).
+- Evolucion del BFF: endpoint que centraliza proxy a agentes + LLM + monitoreo/masking (complementando o sustituyendo flujos actuales).
 - Agentes internos y externos se invocan por HTTP (mismo contrato).
 - Los agentes devuelven "que decir"; el BFF centraliza envio/LLM/monitoring/masking.
 - Se mantiene trazabilidad de runs y controles RBAC en el nuevo flujo.
@@ -212,22 +206,22 @@ Feature `F-202603-06-core-bff-agent-proxy` define la siguiente iteracion:
 
 ```mermaid
 flowchart LR
-    GW[Gateway] --> BFF[Core-Switchboard BFF endpoint nuevo]
+    CL[Cliente] --> BFF[Core BFF endpoint]
     BFF -->|invoke por HTTP| AG1[Agent interno]
     BFF -->|invoke por HTTP| AG2[Agent externo]
     AG1 -->|devuelve que decir| BFF
     AG2 -->|devuelve que decir| BFF
     BFF --> LLM[LLM traffic + monitoring + masking]
     LLM --> BFF
-    BFF --> GW
+    BFF --> CL
 ```
 
 ## Referencias canonicas
 
 - `docs/playbook/avance.md`
 - `docs/playbook/state.md`
-- `docs/playbook/core-contract-v1.md`
-- `docs/playbook/gateway-bff-integration-v2.md`
-- `docs/playbook/frontend-gateway-jwt-access-plan.md`
-- `docs/playbook/core-keys-rotation-runbook.md`
+- `docs/core-contract-v1.md`
+- `docs/bff-integration-v2.md`
+- `docs/frontend-jwt-access-plan.md`
+- `docs/core-keys-rotation-runbook.md`
 - `docs/playbook/features/F-202603-06-core-bff-agent-proxy.md`

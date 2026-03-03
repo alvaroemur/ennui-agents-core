@@ -2,42 +2,67 @@
 
 ## Meta
 
-- Estado: `candidate`
+- Estado: `ready`
 - Owner: alvaromur
 - Fecha creacion: 2026-03-01
-- Ultima actualizacion: 2026-03-01 (doc tecnico gateway v2)
+- Ultima actualizacion: 2026-03-03
 
 ## Objetivo
 
-Evolucionar Core-Switchboard como BFF único: un endpoint que sustituye a `/api/chat`, sirve de proxy entre el cliente (Gateway) y agentes de múltiples tipos (internos y externos), y centraliza tráfico a LLMs, monitoreo y enmascaramiento. Los agentes solo devuelven «qué decir»; el BFF es quien envía.
+Evolucionar el BFF (core) para que sea **core** quien realice la llamada a LLM y aplique monitoreo/masking, mientras los agentes (internos y externos) solo devuelven «qué decir». Hoy el flujo es: core reenvía a runtime (deployment) y el **runtime** hace agente + LLM; esta feature plantea invertir eso: core invoca al agente (HTTP), recibe contenido a decir, y **core** llama al LLM y responde al cliente.
+
+## Estado respecto a F-202603-09 (ya hecho)
+
+- **Entregado por F-202603-09**: Superficie pública única `core/*`; endpoint canónico de chat **`POST /core/relay/chat`**; core resuelve workspace/tenant/agent → deployment y reenvía el request al runtime; runs y trazabilidad. El cliente ya no usa `POST /api/chat` en switchboard (eliminado); usa `POST /core/relay/chat`.
+- **Pendiente (alcance de esta feature)**: Que el **BFF (core)** sea quien llame al LLM y los agentes (runtime) solo devuelvan el contenido a decir. Implica: (1) contrato del runtime que devuelva solo «qué decir»; (2) core invoca agente, luego core llama a `callLLM`/llm-proxy y devuelve la respuesta; (3) monitoreo y masking centralizados en core.
 
 ## Contexto
 
-- Core-Switchboard debe ser explícitamente el BFF del Gateway. Todo (orquestación, proxy, LLM, monitoreo, masking) forma parte de **core-switchboard**.
-- El endpoint actual `/api/chat` se sustituye por uno nuevo (nombre a definir); no se mantiene como alias indefinido.
-- Agentes **internos** se invocan también **por HTTP** (mismo contrato que externos); no hay invocación in-process. Los internos son un deployment con `baseUrl` (p. ej. servicio local).
-- Agentes (externos e internos) **solo devuelven el contenido a decir**; el **endpoint (core-switchboard)** es quien **envía**: realiza la llamada a LLM cuando corresponde, aplica monitoreo y masking, y devuelve la respuesta al cliente.
-- Core no debe ser experto en ningún agente: solo lógica genérica para invocar al agente (proxy), tráfico a LLMs, monitoreo y enmascaramiento de payloads. La arquitectura debe permitir extraer agentes a servicios externos sin rediseñar el sistema.
+- Core ya es la única cara pública (F-09). Falta el paso de «BFF envía a LLM»: hoy el runtime (deployment) hace agente + LLM; el objetivo es que el runtime solo ejecute el agente y devuelva el contenido, y core haga la llamada a LLM.
+- Agentes **internos** y externos se invocan por HTTP (deployment con `baseUrl`); mismo contrato.
+- Core no debe ser experto en ningún agente: solo proxy genérico, tráfico LLM (`llm-proxy`), monitoreo y masking.
 
-## Decisiones de diseño (registradas 2026-03-01)
+## Decisiones de diseño (registradas 2026-03-01; vigentes)
 
-- Nuevo endpoint **sustituye** a `POST /api/chat` (migración controlada; luego retirada del path antiguo).
 - Agentes internos: **siempre por HTTP** (deployment con `baseUrl`; mismo contrato que externos).
-- Agentes devuelven **solo «qué decir»**; el **BFF envía** (llamada a LLM, monitoreo, masking, respuesta al cliente).
-- Todo bajo **core-switchboard** (un solo sistema BFF).
+- Agentes devuelven **solo «qué decir»**; el **BFF (core) envía** (llamada a LLM, monitoreo, masking, respuesta al cliente).
+- Todo bajo **core** (switchboard interno); superficie pública `core/*`.
 
 ## Artefactos tecnicos
 
-- Borrador de integracion para cambios en `gateway`: `docs/playbook/gateway-bff-integration-v2.md`.
+- Borrador de integracion para un hipotético cliente front-end: `docs/bff-integration-v2.md`.
+- Contrato publico vigente: `docs/core-contract-v1.md`.
 
 ## Definition of done
 
-- [ ] Existe contrato v2 (o actualización del contrato) que define el nuevo endpoint y responsabilidades del BFF (proxy, envío, LLM, monitoreo, masking).
-- [ ] El nuevo endpoint sustituye a `POST /api/chat`; migración documentada y path antiguo retirado según plan.
-- [ ] Agentes internos se invocan por HTTP (deployment local con mismo contrato que externos).
-- [ ] Agentes (internos y externos) devuelven solo el contenido a decir; el BFF realiza la llamada a LLM cuando aplica, monitoreo y masking, y envía la respuesta al cliente.
-- [ ] Core no contiene lógica experta por agente; solo dispatcher/proxy genérico, tráfico LLM (`llm-proxy`), monitoreo y enmascaramiento.
-- [ ] Runs y trazabilidad se mantienen (F-202603-04); el BFF sigue registrando runs al hacer proxy/invocación.
+- [x] Existe endpoint canónico de chat en core (`POST /core/relay/chat`) y proxy a deployment (entregado en F-202603-09).
+- [ ] Contrato v2 (o actualización) que define responsabilidades del BFF: core invoca agente (HTTP), recibe «qué decir», core llama a LLM (`llm-proxy`), aplica monitoreo/masking y responde al cliente.
+- [ ] Runtime (agente) devuelve solo el contenido a decir; core realiza la llamada a LLM y envía la respuesta al cliente.
+- [ ] Agentes internos y externos se invocan por HTTP (mismo contrato); core no contiene lógica experta por agente.
+- [ ] Runs y trazabilidad se mantienen; el BFF sigue registrando runs al hacer proxy e invocación a LLM.
+
+## Contrato C0 cerrado (listo para implementacion)
+
+### Responsabilidades congeladas
+
+- Runtime (agente) devuelve solo la intencion/respuesta base ("que decir"), sin invocar LLM.
+- Core mantiene el endpoint publico `POST /core/relay/chat`, invoca runtime por HTTP, llama a LLM via `llm-proxy`, y responde al cliente.
+- Monitoreo, masking y trazabilidad (`runId`) quedan centralizados en core.
+
+### Contrato logico core -> runtime (v2)
+
+- Entrada minima desde core: `workspaceId`, `tenantId`, `agentId`, `messages`, `metadata`.
+- Salida minima del runtime:
+  - `reply` (string o estructura equivalente de contenido a decir),
+  - `trace.agentRunId` (opcional),
+  - `metadata` (opcional para diagnostico).
+- Salida prohibida como dependencia de contrato: el runtime no debe ser responsable de `provider`, `usage` ni llamada directa a LLM.
+
+### Compatibilidad de migracion (C1)
+
+- Se permite modo transitorio para deployments legacy mientras migran al contrato v2.
+- Core debe mantener control de rollback por deployment si un runtime aun no cumple v2.
+- Criterio de cierre funcional de feature: todo deployment activo en contrato v2 y core centralizando trafico LLM.
 
 ## Priorizacion
 
@@ -47,14 +72,17 @@ Evolucionar Core-Switchboard como BFF único: un endpoint que sustituye a `/api/
 
 ## Dependencias
 
-- Tecnicas: F-202603-01 (evolución a contrato v2), F-202603-04 (runs), F-202603-03 (RBAC).
+- Tecnicas: F-202603-01, F-202603-04, F-202603-03, F-202603-09 (todas done). Contrato actual: `core-contract-v1.md`.
 - De negocio: alineación con visión «Core como BFF» y agentes extraíbles.
 
 ## Siguiente accion
 
-Validar el borrador tecnico con el equipo de `gateway` (endpoint, headers y estrategia de migracion) y cerrar contrato v2 final para mover la feature a `validated`.
+Iniciar `in_progress` en C1 implementando el flujo v2 en core/runtime con bandera de migracion y pruebas de regresion de runs + RBAC.
 
 ## Historial de estado
 
 - 2026-03-01: `inbox` (creación; decisiones de diseño registradas en avance y backlog).
-- 2026-03-01: `candidate` (existe borrador tecnico de integracion con `gateway` para contrato/migracion v2).
+- 2026-03-01: `candidate` (existe borrador tecnico de integracion para hipotético cliente; contrato/migracion v2).
+- 2026-03-02: Alcance revisado: F-09 ya entregó endpoint canónico y proxy; pendiente que core sea quien llame al LLM y agentes solo devuelvan «qué decir».
+- 2026-03-03: `validated` (contrato C0 core->runtime y responsabilidades del BFF cerradas).
+- 2026-03-03: `ready` (feature lista para ejecucion C1; implementacion pendiente).

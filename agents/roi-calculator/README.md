@@ -1,5 +1,6 @@
 # Agente: roi-calculator
 
-Calculadora de ROI. Tipo **collector**: recoge datos (qué automatizar, volumen, costo) y devuelve payload estructurado para el simulador (calculator, benefits, freedHoursNote).
+Calculadora de ROI. Usa el runtime compartido `collector`.
 
-- **config.json**: promptFragments, payloadSchema `roi`, persistenceInstruction.
+- La configuración vive en DB (`switchboard_agents.data.tenantConfigs.inspiro-agents-web`).
+- `runtimeId` esperado: `collector`.

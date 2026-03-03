@@ -9,11 +9,17 @@ docs/playbook/
 ├── README.md
 ├── state.md
 ├── avance.md
+├── architecture.md
+├── roadmap.md
 └── features/
     ├── README.md
     ├── _template.md
-    └── F-*.md
+    ├── _archive.md          # Consolidado features cerradas (resumen)
+    ├── archive/             # Archivos F-*.md de features done/dropped
+    └── F-*.md               # Features activas (inbox, candidate, validated, ready, in_progress)
 ```
+
+Los artefactos de contrato y runbook (`core-contract-v1.md`, `core-keys-rotation-runbook.md`, `bff-integration-v2.md`, `frontend-jwt-access-plan.md`) viven en **`docs/`** (raiz); el playbook los referencia.
 
 ## Reglas documentales
 
@@ -24,12 +30,15 @@ docs/playbook/
 
 ## Mapa documental
 
-- Estado global y decisiones: `docs/playbook/state.md`
-- Avance historico: `docs/playbook/avance.md`
-- Arquitectura consolidada (`core + switchboard`): `docs/playbook/architecture.md`
-- Contrato publico v1 de `core/*`: `docs/playbook/core-contract-v1.md`
-- Integracion tecnica para cambios en `gateway` (BFF v2): `docs/playbook/gateway-bff-integration-v2.md`
-- Plan de acceso JWT para `gateway` frontend-only: `docs/playbook/frontend-gateway-jwt-access-plan.md`
-- Runbook de rotacion segura de `core-keys`: `docs/playbook/core-keys-rotation-runbook.md`
-- Ledger de features y flujo: `docs/playbook/features/README.md`
-- Plantilla para nuevas features: `docs/playbook/features/_template.md`
+| Documento | Uso |
+|-----------|-----|
+| `state.md` | Fuente de verdad: estado, plan activo, decisiones, backlog |
+| `avance.md` | Bitacora cronologica de trabajo ejecutado |
+| `architecture.md` | Arquitectura consolidada core + switchboard, RBAC |
+| `docs/core-contract-v1.md` | Contrato publico API `core/*` (health, me, workspaces, tenants, agents, runs, `POST /core/relay/chat`) |
+| `docs/core-keys-rotation-runbook.md` | Rotacion segura de core-keys |
+| `docs/bff-integration-v2.md` | Integracion tecnica para hipotético cliente (BFF v2) |
+| `docs/frontend-jwt-access-plan.md` | Plan JWT para hipotético front-end (sin core-key en browser) |
+| `features/README.md` | Ledger de features, flujo de estados |
+| `features/_template.md` | Plantilla para nuevas features |
+| `features/_archive.md` | Consolidado de features cerradas (resumen); archivos completos en `features/archive/` |

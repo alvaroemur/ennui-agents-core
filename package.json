@@ -12,18 +12,27 @@
     "./auth": "./src/auth/index.js",
     "./core-config": "./src/core-config/index.js",
     "./persistence": "./src/persistence/index.js",
-    "./llm": "./src/llm.js",
-    "./config": "./src/config-loader.js"
+    "./llm": "./src/llm/core.js",
+    "./config": "./src/agent-config/loader.js"
   },
   "scripts": {
     "start": "node src/api/server.js",
-    "dev": "CONFIG_DIR=${CONFIG_DIR:-.} node src/api/server.js",
-    "switchboard": "node switchboard/src/index.js",
-    "switchboard:dev": "cd switchboard && npm run dev",
-    "switchboard:test": "cd switchboard && npm test"
+    "dev": "bash scripts/dev/kill-port.sh && CONFIG_DIR=${CONFIG_DIR:-.} node src/api/server.js",
+    "dev:watch": "nodemon --watch src --ext js,json --exec \"CONFIG_DIR=${CONFIG_DIR:-.} node src/api/server.js\"",
+    "switchboard": "node src/switchboard/index.js",
+    "switchboard:dev": "REGISTRY_PATH=${REGISTRY_PATH:-./src/switchboard/data/registry.json} node src/switchboard/index.js",
+    "switchboard:test": "node --test src/switchboard/test/*.test.js"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "@neondatabase/serverless": "^1.0.0"
+    "@mariozechner/pi-ai": "^0.55.3",
+    "@neondatabase/serverless": "^1.0.2",
+    "dotenv": "^17.3.1",
+    "jose": "^6.1.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
   }
 }

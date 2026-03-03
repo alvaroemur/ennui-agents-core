@@ -1,5 +1,5 @@
 # Build from this module: docker build -f Dockerfile .
-# Config at runtime: mount volume or ConfigMap at /app/config with agents/<agentId>/config.json
+# Runtime modules are bundled from /agents; agent configs come from switchboard DB.
 
 FROM node:20-alpine
 

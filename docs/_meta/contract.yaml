@@ -1,0 +1,107 @@
+version: 1
+owner: "dev-interno-core"
+
+scope:
+  root: "docs"
+  include:
+    - "**/*.md"
+  exclude:
+    - "_meta/**"
+
+truth_model:
+  as_is:
+    source_of_truth:
+      include:
+        - "docs/*.md"
+      exclude:
+        - "docs/playbook/**"
+        - "docs/_meta/**"
+    purpose: "Estado actual implementado del sistema."
+  to_be:
+    source_of_truth:
+      include:
+        - "docs/playbook/**/*.md"
+      exclude:
+        - "docs/_meta/**"
+    purpose: "Roadmap y evolucion objetivo."
+  decision_rule:
+    - "Si describe comportamiento vigente o contrato activo, va en docs/."
+    - "Si describe cambios futuros, alternativas o migraciones, va en docs/playbook/."
+    - "Cuando una iniciativa se implementa, actualizar docs/ y dejar en playbook una referencia de cierre."
+
+structure:
+  required_paths:
+    - "docs/_meta/contract.yaml"
+    - "docs/playbook/README.md"
+    - "docs/playbook/state.md"
+    - "docs/playbook/roadmap.md"
+    - "docs/playbook/architecture.md"
+    - "docs/playbook/avance.md"
+  allowed_top_level_dirs:
+    - "playbook"
+    - "_meta"
+  notes:
+    - "Mantener pocos archivos en docs/ raiz y evitar crear subcarpetas nuevas fuera de playbook."
+
+naming:
+  file_case: "kebab-case"
+  forbidden_patterns:
+    - "copy"
+    - "final-final"
+    - "tmp"
+
+content:
+  language: "es"
+  require_title_h1: true
+  require_toc: false
+  frontmatter:
+    enabled: true
+    required_keys:
+      - "title"
+      - "status"
+      - "audience"
+      - "source_of_truth"
+      - "updated_at"
+  style_rules:
+    concise: true
+    simple_language: true
+    prefer_tables_lists_over_paragraphs: true
+    section_emojis_required: true
+    mermaid_preferred: true
+
+deduplication:
+  single_source_of_truth: true
+  strategy: "reference-instead-of-copy"
+  operational_source:
+    - "docs/*.md"
+  planning_source:
+    - "docs/playbook/**/*.md"
+
+lifecycle:
+  stale_after_days: 120
+  archive_path: "docs/playbook/features/archive"
+  allowed_final_states:
+    - "archived"
+
+playbook_bridge:
+  canonical_root: "docs/playbook"
+  canonical_files:
+    - "README.md"
+    - "state.md"
+    - "roadmap.md"
+    - "architecture.md"
+    - "avance.md"
+  sync_policy:
+    source_of_truth: "docs-as-is"
+    planning_source_of_truth: "playbook-to-be"
+    allowed_user_friendly_transformations:
+      - "narrative"
+      - "table-first"
+      - "diagram-first"
+    mapping_required: false
+  mappings: []
+
+routing_cues:
+  suggest_playbook_when_feature_planning: true
+  suggest_ideate_when_new_idea: true
+  suggest_evaluate_when_integration_decision: true

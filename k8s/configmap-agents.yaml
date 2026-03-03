@@ -1,7 +1,7 @@
-# ConfigMap with agent configs. From repo root:
+# ConfigMap for runtime overrides (optional). From repo root:
 #   kubectl create configmap core-config --from-file=agents=agents --dry-run=client -o yaml > k8s/configmap-agents.yaml
 # Then kubectl apply -f k8s/configmap-agents.yaml
-# Deployment mounts at /app/config/agents so CONFIG_DIR/agents/<id>/config.json is available.
+# Deployment mounts at /app/config/agents so runtime modules (e.g. /app/config/agents/collector/runtime.js) are available.
 apiVersion: v1
 kind: ConfigMap
 metadata:
