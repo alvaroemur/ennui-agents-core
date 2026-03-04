@@ -16,7 +16,7 @@ Este documento reemplaza y consolida la documentacion previa separada de:
 
 ## Sistema y limites
 
-- **`core`**: unica superficie publica. Expone `core/*` (health, me, workspaces, tenants, agents, runs, **POST /core/relay/chat**). Integra internamente el modulo switchboard (registro, RBAC) y el runtime de agentes.
+- **`core`**: unica superficie publica. Expone `core/*` (health, me, workspaces, tenants, agents, assignments: promote/rollback/audit, runs, trace/events, trace/active-connections, auth/users, **POST /core/relay/chat**). Integra internamente el modulo switchboard (registro, RBAC) y el runtime de agentes.
 - **`switchboard`**: modulo **interno** (control plane). Registro (workspaces, tenants, agents, deployments, assignments, runs), RBAC por workspace, resolucion tenant+agent→deployment. No se expone como API publica separada.
 - **Cliente / hipotético front-end**: Cualquier aplicacion (p. ej. SPA) que consuma la API publica de **core** (`POST /core/relay/chat`, `GET /core/runs`, etc.) con core-key (M2M) o JWT de usuario. No hay producto «gateway» en el repo; se habla de un consumidor hipotetico.
 
@@ -29,27 +29,28 @@ flowchart LR
     CL[Cliente / front-end] -->|POST /core/relay/chat + auth| CORE[Core]
     CORE --> REG[(Registry: workspaces, tenants, agents, assignments, runs)]
     CORE --> CK[(core-keys / JWT)]
-    CORE -->|forward| RT[Runtime / deployment]
-    RT --> LLM[LLM provider]
-    RT --> CORE
+    CORE -->|forward replyMode=v2| RT[Runtime / deployment]
+    RT -->|reply + trace| CORE
+    CORE -->|LLM call| LLM[LLM provider]
+    LLM --> CORE
     CORE -->|response + X-Run-Id| CL
 ```
 
 ## Contrato operativo actual (v1)
 
-### Flujo canonico de chat (API publica)
+### Flujo canonico de chat (API publica, v1.1)
 
 1. Cliente (p. ej. un hipotético front-end) llama **`POST /core/relay/chat`** en **core** con auth (core-key o JWT) y body `workspaceId`, `tenantId`, `agentId`, `messages`.
 2. Core autentica y autoriza (RBAC por workspace).
 3. Core usa el registro (switchboard interno) para resolver `tenantId + agentId -> deployment`.
-4. Core crea `run` (`running`) y reenvia a `deployment.baseUrl` (runtime).
-5. Runtime ejecuta agente y LLM; responde a core.
+4. Core crea `run` (`running`) y reenvia a `deployment.baseUrl` (runtime) con `responseMode=v2`.
+5. **Flujo v2 (canonico)**: runtime ejecuta solo el agente y devuelve «qué decir» (`reply` + trace); **core** llama a LLM (llm-proxy), aplica monitoreo/masking y responde al cliente. **Fallback legacy**: si el runtime devuelve respuesta final (`text`), core la acepta temporalmente.
 6. Core cierra `run` (`success`/`error`) y devuelve respuesta con `X-Run-Id`.
 
 ### Responsabilidades por componente
 
 - **core**
-  - Expone API publica `core/*` (health, me, workspaces, tenants, agents, runs, **POST /core/relay/chat**).
+  - Expone API publica `core/*` (health, me, workspaces, tenants, agents, assignments promote/rollback/audit, runs, trace/events, trace/active-connections, auth/users, **POST /core/relay/chat**).
   - Usa switchboard (interno) para registro y RBAC.
   - Orquesta runs y reenvio al runtime (deployment).
 - **switchboard** (interno)
@@ -88,7 +89,7 @@ flowchart LR
 }
 ```
 
-### Secuencia `POST /core/relay/chat` (v1)
+### Secuencia `POST /core/relay/chat` (v1.1, flujo v2)
 
 ```mermaid
 sequenceDiagram
@@ -96,6 +97,7 @@ sequenceDiagram
     participant C as Core
     participant R as Registry (interno)
     participant RT as Runtime (deployment)
+    participant LLM as LLM (llm-proxy)
 
     G->>C: POST /core/relay/chat (Authorization, workspaceId, tenantId, agentId, messages)
     C->>C: authn (core-key o JWT) + authz por workspace
@@ -107,8 +109,10 @@ sequenceDiagram
             C-->>G: 404
         else ok
             C->>C: crear run (running)
-            C->>RT: POST {baseUrl}/core/runtime/chat (agentId, tenantId, messages, ...)
-            RT-->>C: text, provider, usage, trace
+            C->>RT: POST {baseUrl}/core/runtime/chat (responseMode=v2, ...)
+            RT-->>C: reply, trace.agentRunId
+            C->>LLM: llamada LLM con reply
+            LLM-->>C: text, provider, usage
             C->>C: cerrar run (success/error)
             C-->>G: 200 + X-Run-Id + body
         end
@@ -120,6 +124,77 @@ sequenceDiagram
 - Error de routing/infra: `4xx/5xx` con `error`, `detail`, `runId`.
 - Error downstream runtime: `502` con `error`, `detail`, `runId`.
 - Correlacion minima: header `X-Run-Id` + consulta en `GET /core/runs/:runId`.
+
+## Flujograma de endpoints y flujos
+
+Todos los endpoints de la API publica (`core/*`) y los flujos asociados. Rutas legacy (`/health`, `/api/config`, `/api/auth/google/*`) se documentan en README y contrato v1.
+
+### Diagrama de flujos por endpoint
+
+```mermaid
+flowchart TB
+    subgraph Entrada
+        CL[Cliente]
+    end
+    subgraph Core["Core API"]
+        CORE[Router]
+        AUTH[Authn: core-key / JWT]
+        RBAC[Authz: RBAC]
+    end
+    REG[(Registry)]
+    RT[Runtime]
+    LLM[LLM]
+
+    CL -->|todos los endpoints| CORE
+
+    CORE -->|GET /core/health| R200[200 OK]
+    CORE -->|resto| AUTH
+
+    AUTH -->|GET /core/me| REG
+    AUTH -->|workspaces, tenants, agents, runs, trace, audit| RBAC
+    AUTH -->|auth/users| REG
+
+    RBAC --> REG
+    REG -->|datos| R200
+
+    CORE -->|promote / rollback| RBAC
+    RBAC -->|health-check| RT
+    RBAC --> REG
+
+    CORE -->|POST /core/relay/chat| AUTH
+    AUTH -->|canUseChat| RBAC
+    RBAC --> REG
+    REG -->|assignment + deployment| CORE
+    CORE -->|crear run| REG
+    CORE -->|POST /core/runtime/chat| RT
+    RT -->|reply + trace| CORE
+    CORE -->|llm-proxy| LLM
+    LLM --> CORE
+    CORE -->|finalize run| REG
+    CORE -->|200 + X-Run-Id| CL
+```
+
+### Resumen de flujo por endpoint
+
+| Endpoint | Flujo |
+|----------|--------|
+| `GET /core/health` | Cliente → Core → `200 { ok: true }` (sin auth). |
+| `GET /core/me` | Cliente → Core → Auth (core-key/JWT) → principal (rol, workspaceId, allowedWorkspaces) → `200`. |
+| `GET /core/workspaces` | Cliente → Core → Auth → RBAC → Registry (list workspaces, filtrado por allowedWorkspaces si no admin) → `200`. |
+| `GET /core/workspaces/:id/tenants` | Cliente → Core → Auth → RBAC (scope workspace) → Registry (list tenants) → `200`. |
+| `GET /core/tenants/:id/agents` | Cliente → Core → Auth → RBAC (scope tenant/workspace) → Registry (assignments + agents) → `200`. |
+| `POST /core/workspaces/:id/assignments/promote` | Cliente → Core → Auth → RBAC (write) → Registry (tenant, assignment, deployment) → health-check GET al deployment target → Registry (update assignment + audit event) → `200` / `502` si health falla. |
+| `POST /core/workspaces/:id/assignments/rollback` | Cliente → Core → Auth → RBAC (write) → Registry (assignment + último audit success) → health-check al deployment de rollback → Registry (update assignment + audit event) → `200`. |
+| `GET /core/workspaces/:id/assignments/audit` | Cliente → Core → Auth → RBAC (read) → Registry (listAssignmentAudit con filtros) → `200`. |
+| `GET /core/auth/users` | Cliente → Core → Auth → comprobación master (CORE_AUTH_MASTER_EMAILS) → Registry (listAuthUsers) → `200`. |
+| `POST /core/auth/users` | Cliente → Core → Auth → master → validación body → Registry (createAuthUser) → `201`. |
+| `PATCH /core/auth/users/:email` | Cliente → Core → Auth → master → validación body → Registry (updateAuthUser) → `200`. |
+| `GET /core/runs` | Cliente → Core → Auth → RBAC (scope workspace si no admin) → Registry (listRuns con filtros) → `200`. |
+| `GET /core/runs/:runId` | Cliente → Core → Auth → RBAC (scope del run) → Registry (getRun + getRunTimeline) → `200`. |
+| `GET /core/trace/events` | Cliente → Core → Auth → RBAC → Registry (listTraceEvents) → `200`. |
+| `GET /core/trace/active-connections` | Cliente → Core → Auth → RBAC → Registry (listActiveConnections) → `200`. |
+| `POST /core/relay/chat` | Cliente → Core → Auth → RBAC (canUseChat) → Registry (tenant, assignment, deployment) → crear run (running) → POST a `{deployment.baseUrl}/core/runtime/chat` (responseMode=v2) → Runtime devuelve `reply` → Core llama LLM (llm-proxy) → Core finaliza run (success/error) → `200` + `X-Run-Id` (ver secuencia detallada más arriba). |
+| `POST /core/runtime/chat` | **Interno**: invocado por Core (relay) hacia el deployment; no es endpoint público. Auth + RBAC por tenant; ejecuta agente local y devuelve `reply` + trace. |
 
 ## Seguridad y tenancy (RBAC v2)
 
@@ -143,7 +218,15 @@ sequenceDiagram
 | `GET /core/tenants/:id/agents` | Allow | Allow (scope tenant) | Allow (scope tenant) |
 | `GET /core/runs` | Allow (all) | Allow (scope workspace) | Allow (scope workspace) |
 | `GET /core/runs/:runId` | Allow | Allow (si run en su scope) | Allow (si run en su scope) |
+| `GET /core/trace/events` | Allow (all) | Allow (scope workspace) | Allow (scope workspace) |
+| `GET /core/trace/active-connections` | Allow (all) | Allow (scope workspace) | Allow (scope workspace) |
+| `POST /core/workspaces/:id/assignments/promote` | Allow | Allow (scope workspace, write) | Deny |
+| `POST /core/workspaces/:id/assignments/rollback` | Allow | Allow (scope workspace, write) | Deny |
+| `GET /core/workspaces/:id/assignments/audit` | Allow | Allow (scope workspace) | Allow (scope workspace) |
 | `POST /core/relay/chat` | Allow | Allow (scope workspace/tenant) | Deny |
+| `GET /core/auth/users` | Allow (solo master) | Deny | Deny |
+| `POST /core/auth/users` | Allow (solo master) | Deny | Deny |
+| `PATCH /core/auth/users/:email` | Allow (solo master) | Deny | Deny |
 
 ### Configuracion de core-keys
 
@@ -151,12 +234,12 @@ sequenceDiagram
 - `SWITCHBOARD_CORE_KEYS=<json-array>`
 - o archivo JSON en `SWITCHBOARD_KEYS_PATH` (default: path relativo al modulo switchboard, p. ej. `src/switchboard/data/core-keys.json`)
 
-Formato:
+Formato (naming canonico: `workspaceId`):
 
 ```json
 [
-  { "id": "key-platform-01", "label": "Platform Admin", "key": "adm", "accountId": "platform", "status": "active" },
-  { "id": "key-client-01", "label": "Cliente M2M", "key": "op1", "accountId": "inspiro-comercial", "status": "active" }
+  { "id": "key-admin-01", "label": "Inspiro Agents Admin", "key": "adm", "workspaceId": "inspiro-agents", "status": "active" },
+  { "id": "key-client-01", "label": "Cliente M2M", "key": "op1", "workspaceId": "inspiro-agents", "status": "active" }
 ]
 ```
 
@@ -193,25 +276,25 @@ Referencia de plan: `docs/frontend-jwt-access-plan.md` (Fase 0-4; redactado para
 2. `POST /core/relay/chat` con auth (core-key o JWT) y body valido (workspaceId, tenantId, agentId, messages) devuelve respuesta con `X-Run-Id`.
 3. `GET /core/runs/{runId}` devuelve el run (`success` o `error`).
 
-## Direccion de evolucion (backlog activo)
+## Estado actual del BFF (F-202603-06 cerrada)
 
-Feature `F-202603-06-core-bff-agent-proxy` define la siguiente iteracion:
+La feature **F-202603-06-core-bff-agent-proxy** está cerrada (`done`). Comportamiento implementado:
 
-- Evolucion del BFF: endpoint que centraliza proxy a agentes + LLM + monitoreo/masking (complementando o sustituyendo flujos actuales).
+- Core centraliza proxy a agentes + LLM + monitoreo/masking en `POST /core/relay/chat`.
 - Agentes internos y externos se invocan por HTTP (mismo contrato).
-- Los agentes devuelven "que decir"; el BFF centraliza envio/LLM/monitoring/masking.
-- Se mantiene trazabilidad de runs y controles RBAC en el nuevo flujo.
+- En contrato v2, los agentes devuelven «qué decir» (`reply`); core centraliza envío a LLM y respuesta al cliente.
+- Trazabilidad de runs y RBAC se mantienen en el flujo. Detalle: `docs/playbook/features/archive/F-202603-06-core-bff-agent-proxy.md`.
 
-### Esquema objetivo (F-202603-06)
+### Esquema actual (BFF centralizado)
 
 ```mermaid
 flowchart LR
-    CL[Cliente] --> BFF[Core BFF endpoint]
+    CL[Cliente] --> BFF[Core BFF /core/relay/chat]
     BFF -->|invoke por HTTP| AG1[Agent interno]
     BFF -->|invoke por HTTP| AG2[Agent externo]
-    AG1 -->|devuelve que decir| BFF
-    AG2 -->|devuelve que decir| BFF
-    BFF --> LLM[LLM traffic + monitoring + masking]
+    AG1 -->|reply| BFF
+    AG2 -->|reply| BFF
+    BFF --> LLM[LLM + monitoring + masking]
     LLM --> BFF
     BFF --> CL
 ```
@@ -224,4 +307,4 @@ flowchart LR
 - `docs/bff-integration-v2.md`
 - `docs/frontend-jwt-access-plan.md`
 - `docs/core-keys-rotation-runbook.md`
-- `docs/playbook/features/F-202603-06-core-bff-agent-proxy.md`
+- `docs/playbook/features/archive/F-202603-06-core-bff-agent-proxy.md`

@@ -4,6 +4,7 @@
  */
 
 import { callLLM as callLLMReal } from "../llm/core.js";
+import { getDefaultLlmApiKeys, normalizeCustomLlmApiKeys } from "../llm/api-keys.js";
 import { createTrafficMonitor } from "./monitor.js";
 import { maskForTelemetry } from "./mask.js";
 
@@ -40,6 +41,19 @@ function getModelFromRequest(provider, apiKeys = {}) {
     return apiKeys.openaiModel || "gpt-4o-mini";
 }
 
+function resolveRequestApiKeys(rawApiKeys) {
+    const customApiKeys = normalizeCustomLlmApiKeys(rawApiKeys, rawApiKeys?.preferredProvider);
+    if (customApiKeys) return customApiKeys;
+    return getDefaultLlmApiKeys(rawApiKeys?.preferredProvider);
+}
+
+function clonePayloadWithoutApiKeys(payload) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return payload;
+    const payloadCopy = { ...payload };
+    delete payloadCopy.apiKeys;
+    return payloadCopy;
+}
+
 async function forwardToHttpProxy(proxyUrl, payload) {
     const response = await fetch(proxyUrl, {
         method: "POST",
@@ -66,14 +80,20 @@ async function forwardToHttpProxy(proxyUrl, payload) {
  * If LLM_PROXY_URL exists, forwards payload to that URL instead of direct providers.
  */
 export async function callLLM(payload) {
+    const incomingPayload =
+        payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {};
+    const resolvedPayload = {
+        ...incomingPayload,
+        apiKeys: resolveRequestApiKeys(incomingPayload.apiKeys),
+    };
     const startedAt = Date.now();
-    const requestPreview = toTelemetryPreview(payload);
+    const requestPreview = toTelemetryPreview(clonePayloadWithoutApiKeys(resolvedPayload));
 
     try {
         const proxyUrl = String(process.env.LLM_PROXY_URL || "").trim();
         const result = proxyUrl
-            ? await forwardToHttpProxy(proxyUrl, payload)
-            : await callLLMReal(payload);
+            ? await forwardToHttpProxy(proxyUrl, resolvedPayload)
+            : await callLLMReal(resolvedPayload);
 
         const durationMs = Date.now() - startedAt;
         const responsePreview = toTelemetryPreview({
@@ -82,16 +102,16 @@ export async function callLLM(payload) {
         });
 
         trafficMonitor.emitSuccess({
-            provider: result?.provider ?? payload?.apiKeys?.preferredProvider ?? "unknown",
-            model: getModelFromRequest(result?.provider, payload?.apiKeys),
+            provider: result?.provider ?? resolvedPayload?.apiKeys?.preferredProvider ?? "unknown",
+            model: getModelFromRequest(result?.provider, resolvedPayload?.apiKeys),
             durationMs,
             responseStatus: result?.response?.status ?? null,
             usage: result?.usage ?? null,
-            fingerprint: payload?.trace?.fingerprint ?? null,
-            fingerprintPrefix: payload?.trace?.fingerprintPrefix ?? null,
-            runId: payload?.trace?.runId ?? null,
-            executionEnv: payload?.trace?.env ?? null,
-            signatureSource: payload?.trace?.signatureSource ?? null,
+            fingerprint: resolvedPayload?.trace?.fingerprint ?? null,
+            fingerprintPrefix: resolvedPayload?.trace?.fingerprintPrefix ?? null,
+            runId: resolvedPayload?.trace?.runId ?? null,
+            executionEnv: resolvedPayload?.trace?.env ?? null,
+            signatureSource: resolvedPayload?.trace?.signatureSource ?? null,
             requestPreview,
             responsePreview,
         });
@@ -101,14 +121,17 @@ export async function callLLM(payload) {
         const durationMs = Date.now() - startedAt;
         trafficMonitor.emitError(
             {
-                provider: payload?.apiKeys?.preferredProvider ?? "unknown",
-                model: getModelFromRequest(payload?.apiKeys?.preferredProvider, payload?.apiKeys),
+                provider: resolvedPayload?.apiKeys?.preferredProvider ?? "unknown",
+                model: getModelFromRequest(
+                    resolvedPayload?.apiKeys?.preferredProvider,
+                    resolvedPayload?.apiKeys,
+                ),
                 durationMs,
-                fingerprint: payload?.trace?.fingerprint ?? null,
-                fingerprintPrefix: payload?.trace?.fingerprintPrefix ?? null,
-                runId: payload?.trace?.runId ?? null,
-                executionEnv: payload?.trace?.env ?? null,
-                signatureSource: payload?.trace?.signatureSource ?? null,
+                fingerprint: resolvedPayload?.trace?.fingerprint ?? null,
+                fingerprintPrefix: resolvedPayload?.trace?.fingerprintPrefix ?? null,
+                runId: resolvedPayload?.trace?.runId ?? null,
+                executionEnv: resolvedPayload?.trace?.env ?? null,
+                signatureSource: resolvedPayload?.trace?.signatureSource ?? null,
                 requestPreview,
             },
             error,

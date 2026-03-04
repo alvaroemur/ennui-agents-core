@@ -20,7 +20,7 @@ Permitir que un hipotético front-end (p. ej. SPA) sea la interfaz de administra
 ## Principios de diseño
 
 1. Credenciales de usuario en browser (OIDC/OAuth2 PKCE), no secretos de plataforma.
-2. `switchboard` valida JWT de usuario y aplica RBAC por scope de cuentas/tenants.
+2. `switchboard` valida JWT de usuario y aplica RBAC por scope de workspaces/tenants.
 3. `core-key` queda para integraciones maquina-a-maquina (M2M), no para UI.
 4. Migracion incremental sin cortar operacion actual.
 
@@ -29,7 +29,7 @@ Permitir que un hipotético front-end (p. ej. SPA) sea la interfaz de administra
 ### Entrada desde frontend
 
 - `Authorization: Bearer <user-jwt>`
-- `X-Account-Id: <accountId>` (opcional si viene en claim default)
+- `X-Workspace-Id: <workspaceId>` (opcional si viene en claim default)
 
 ### Claims minimos requeridos (propuesta)
 
@@ -40,18 +40,18 @@ Permitir que un hipotético front-end (p. ej. SPA) sea la interfaz de administra
   "aud": "core-switchboard",
   "exp": 1760000000,
   "roles": ["operador-cuenta"],
-  "allowedAccounts": ["inspiro-comercial"],
-  "defaultAccountId": "inspiro-comercial"
+  "allowedWorkspaces": ["inspiro-agents"],
+  "defaultWorkspaceId": "inspiro-agents"
 }
 ```
 
 ### Reglas de autorizacion
 
-- `admin-tecnico`: puede operar todas las cuentas.
-- `operador-cuenta`: lectura/escritura/chat solo en `allowedAccounts`.
-- `lector-cuenta`: solo lectura en `allowedAccounts`.
+- `admin-tecnico`: puede operar todos los workspaces.
+- `operador-cuenta`: lectura/escritura/chat solo en `allowedWorkspaces`.
+- `lector-cuenta`: solo lectura en `allowedWorkspaces`.
 
-Si el request trae `X-Account-Id` fuera de scope -> `403`.
+Si el request trae `X-Workspace-Id` fuera de scope -> `403`.
 
 ## Estrategia de migracion por fases
 
@@ -75,7 +75,7 @@ Si el request trae `X-Account-Id` fuera de scope -> `403`.
 
 ### Fase 2: RBAC por usuario
 
-- Extender authz para usar `allowedAccounts`/roles de JWT.
+- Extender authz para usar `allowedWorkspaces`/roles de JWT.
 - Mantener matriz RBAC vigente en endpoints `runs`, `chat`, `registry`.
 
 ### Fase 3: Migracion de front-end
@@ -106,7 +106,7 @@ Si el request trae `X-Account-Id` fuera de scope -> `403`.
    - conservar errores consistentes (`401`, `403`, `400 legacy`).
 3. `switchboard/test/*`
    - tests de JWT valido/expirado/issuer invalido/audience invalido.
-   - tests de scope `allowedAccounts`.
+  - tests de scope `allowedWorkspaces`.
 
 ## Matriz de riesgos
 
@@ -121,7 +121,7 @@ Si el request trae `X-Account-Id` fuera de scope -> `403`.
 
 - Contrato de claims versionado y aceptado.
 - `switchboard` valida JWT con JWKS.
-- RBAC por usuario aplicado a cuentas permitidas.
+- RBAC por usuario aplicado a workspaces permitidos.
 - Frontend funcional sin core-key en cliente.
 - Core-key restringida a uso M2M.
 

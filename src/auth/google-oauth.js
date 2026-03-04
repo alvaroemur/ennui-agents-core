@@ -8,6 +8,7 @@ const DEFAULT_JWT_ISSUER = "core-auth";
 const DEFAULT_JWT_AUDIENCE = "core-switchboard";
 const DEFAULT_JWT_TTL_SEC = 3600;
 const ADMIN_ROLE = "admin-tecnico";
+const VALID_ROLES = new Set(["admin-tecnico", "operador-cuenta", "lector-cuenta"]);
 
 function parseBool(value, fallback = false) {
     if (value == null) return fallback;
@@ -91,6 +92,12 @@ function getAdminEmails() {
     return parseCsv(process.env.CORE_AUTH_GOOGLE_ADMIN_EMAILS).map((item) => normalizeEmail(item));
 }
 
+function getMasterEmails() {
+    const configured = parseCsv(process.env.CORE_AUTH_MASTER_EMAILS).map((item) => normalizeEmail(item));
+    if (configured.length > 0) return configured;
+    return [normalizeEmail("alvaro.e.mur@gmail.com")];
+}
+
 function getAdminAllowedAccounts() {
     return parseCsv(process.env.CORE_AUTH_ADMIN_ALLOWED_ACCOUNTS);
 }
@@ -99,8 +106,56 @@ function allowAnyAdminWhenNoList() {
     return parseBool(process.env.CORE_AUTH_GOOGLE_ALLOW_ANY_ADMIN, false);
 }
 
+function shouldUseLegacyEmailAllowlistFallback() {
+    return parseBool(process.env.CORE_AUTH_LEGACY_EMAIL_ALLOWLIST_FALLBACK, false);
+}
+
 function getAllowedHostedDomains() {
     return parseCsv(process.env.CORE_AUTH_GOOGLE_ALLOWED_HOSTED_DOMAINS).map((item) => item.toLowerCase());
+}
+
+function normalizeAllowedAccounts(value) {
+    if (!Array.isArray(value)) return [];
+    const unique = new Set();
+    for (const item of value) {
+        if (typeof item !== "string") continue;
+        const normalized = item.trim();
+        if (!normalized) continue;
+        unique.add(normalized);
+    }
+    return Array.from(unique);
+}
+
+function normalizeRole(value) {
+    const role = typeof value === "string" ? value.trim() : "";
+    return VALID_ROLES.has(role) ? role : "";
+}
+
+function normalizeAccessProfile(rawProfile = {}, fallback = {}) {
+    const hasExplicitRole = Object.prototype.hasOwnProperty.call(rawProfile || {}, "role");
+    const explicitRole = normalizeRole(rawProfile?.role);
+    if (hasExplicitRole && !explicitRole) return null;
+    const role = explicitRole || normalizeRole(fallback?.role) || ADMIN_ROLE;
+    const allowedAccounts = normalizeAllowedAccounts(
+        rawProfile?.allowedAccounts ||
+        rawProfile?.allowedWorkspaces ||
+        fallback?.allowedAccounts ||
+        fallback?.allowedWorkspaces ||
+        []
+    );
+    const defaultAccountCandidate = trimString(
+        rawProfile?.defaultAccountId ||
+        rawProfile?.defaultWorkspaceId ||
+        fallback?.defaultAccountId ||
+        fallback?.defaultWorkspaceId ||
+        ""
+    );
+    const defaultAccountId = defaultAccountCandidate || (allowedAccounts[0] || null);
+    return {
+        role,
+        allowedAccounts,
+        defaultAccountId,
+    };
 }
 
 function resolveRedirectUri(requestedRedirectUri) {
@@ -310,30 +365,38 @@ async function verifyGoogleIdToken(idToken) {
     };
 }
 
-function ensureAdminAccess(email) {
+function resolveLegacyAccessProfile(email) {
     const adminEmails = getAdminEmails();
     if (adminEmails.length === 0 && allowAnyAdminWhenNoList()) {
-        return;
+        return normalizeAccessProfile({
+            role: ADMIN_ROLE,
+            allowedAccounts: getAdminAllowedAccounts(),
+            defaultAccountId: trimString(process.env.CORE_AUTH_DEFAULT_ACCOUNT_ID) || null,
+        });
     }
     if (adminEmails.length === 0) {
-        throw new AuthHttpError(
-            403,
-            "admin_allowlist_missing",
-            "No admin allowlist configured. Set CORE_AUTH_GOOGLE_ADMIN_EMAILS."
-        );
+        return null;
     }
     if (!adminEmails.includes(normalizeEmail(email))) {
-        throw new AuthHttpError(403, "admin_access_denied", "Your account is not allowed as admin-tecnico.");
+        return null;
     }
+    return normalizeAccessProfile({
+        role: ADMIN_ROLE,
+        allowedAccounts: getAdminAllowedAccounts(),
+        defaultAccountId: trimString(process.env.CORE_AUTH_DEFAULT_ACCOUNT_ID) || null,
+    });
 }
 
-function createCoreSessionToken(googleUser) {
+function createCoreSessionToken(googleUser, accessProfile) {
     const secret = requireJwtSecret();
     const now = Math.floor(Date.now() / 1000);
     const ttlSec = getJwtTtlSec();
-    const allowedAccounts = getAdminAllowedAccounts();
-    const defaultAccountId =
-        trimString(process.env.CORE_AUTH_DEFAULT_ACCOUNT_ID) || (allowedAccounts[0] || null);
+    const fallbackProfile = {
+        role: ADMIN_ROLE,
+        allowedAccounts: getAdminAllowedAccounts(),
+        defaultAccountId: trimString(process.env.CORE_AUTH_DEFAULT_ACCOUNT_ID) || null,
+    };
+    const normalizedProfile = normalizeAccessProfile(accessProfile, fallbackProfile) || normalizeAccessProfile(fallbackProfile);
 
     const payload = {
         iss: getJwtIssuer(),
@@ -345,10 +408,10 @@ function createCoreSessionToken(googleUser) {
         email: googleUser.email,
         name: googleUser.name,
         picture: googleUser.picture,
-        role: ADMIN_ROLE,
-        roles: [ADMIN_ROLE],
-        allowedAccounts,
-        defaultAccountId,
+        role: normalizedProfile.role,
+        roles: [normalizedProfile.role],
+        allowedAccounts: normalizedProfile.allowedAccounts,
+        defaultAccountId: normalizedProfile.defaultAccountId,
     };
     return {
         token: signJwt(payload, secret),
@@ -357,7 +420,7 @@ function createCoreSessionToken(googleUser) {
     };
 }
 
-export async function loginWithGoogle({ code, idToken, redirectUri } = {}) {
+export async function loginWithGoogle({ code, idToken, redirectUri, resolveAccessProfile } = {}) {
     requireGoogleEnabled();
 
     let token = trimString(idToken);
@@ -367,8 +430,35 @@ export async function loginWithGoogle({ code, idToken, redirectUri } = {}) {
     }
 
     const googleUser = await verifyGoogleIdToken(token);
-    ensureAdminAccess(googleUser.email);
-    const session = createCoreSessionToken(googleUser);
+    const normalizedEmail = normalizeEmail(googleUser.email);
+
+    let accessProfile = null;
+    if (typeof resolveAccessProfile === "function") {
+        accessProfile = await resolveAccessProfile(normalizedEmail);
+    }
+
+    if (!accessProfile && getMasterEmails().includes(normalizedEmail)) {
+        accessProfile = {
+            role: ADMIN_ROLE,
+            allowedAccounts: getAdminAllowedAccounts(),
+            defaultAccountId: trimString(process.env.CORE_AUTH_DEFAULT_ACCOUNT_ID) || null,
+        };
+    }
+    if (!accessProfile && shouldUseLegacyEmailAllowlistFallback()) {
+        accessProfile = resolveLegacyAccessProfile(normalizedEmail);
+    }
+    if (!accessProfile) {
+        throw new AuthHttpError(403, "access_denied", "Your account is not allowed to access this app.");
+    }
+    if (String(accessProfile?.status || "active").trim().toLowerCase() !== "active") {
+        throw new AuthHttpError(403, "access_inactive", "Your account access is inactive.");
+    }
+    const normalizedAccessProfile = normalizeAccessProfile(accessProfile);
+    if (!normalizedAccessProfile) {
+        throw new AuthHttpError(500, "access_profile_invalid", "Resolved access profile is invalid.");
+    }
+
+    const session = createCoreSessionToken(googleUser, normalizedAccessProfile);
 
     return {
         accessToken: session.token,
@@ -379,7 +469,7 @@ export async function loginWithGoogle({ code, idToken, redirectUri } = {}) {
             email: googleUser.email,
             name: googleUser.name,
             picture: googleUser.picture,
-            role: ADMIN_ROLE,
+            role: session.claims.role,
         },
         claims: session.claims,
     };

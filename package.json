@@ -21,7 +21,8 @@
     "dev:watch": "nodemon --watch src --ext js,json --exec \"CONFIG_DIR=${CONFIG_DIR:-.} node src/api/server.js\"",
     "switchboard": "node src/switchboard/index.js",
     "switchboard:dev": "REGISTRY_PATH=${REGISTRY_PATH:-./src/switchboard/data/registry.json} node src/switchboard/index.js",
-    "switchboard:test": "node --test src/switchboard/test/*.test.js"
+    "switchboard:test": "node --test src/switchboard/test/*.test.js",
+    "api:test": "node --test src/api/test/*.test.js"
   },
   "engines": {
     "node": ">=20"

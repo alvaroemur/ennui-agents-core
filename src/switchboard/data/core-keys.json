@@ -7,14 +7,6 @@
       "workspaceId": "inspiro-agents",
       "status": "active",
       "createdAt": "2026-03-01T00:00:00Z"
-    },
-    {
-      "id": "key-platform-admin-01",
-      "label": "Platform Admin",
-      "key": "change-me-platform-admin-key",
-      "workspaceId": "platform",
-      "status": "active",
-      "createdAt": "2026-03-01T00:00:00Z"
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 ## Meta
 
-- Estado: `in_progress`
+- Estado: `done`
 - Owner: alvaromur
 - Fecha creacion: 2026-03-01
 - Ultima actualizacion: 2026-03-03
@@ -19,11 +19,11 @@ Habilitar autenticacion de usuarios (JWT) para que un **hipotético front-end** 
 
 ## Definition of done
 
-- [ ] Existe contrato de claims JWT (roles, allowedWorkspaces, defaultWorkspaceId).
-- [ ] Core (con lógica de auth en switchboard/rbac) valida JWT por issuer/audience/JWKS.
-- [ ] Endpoints `core/*` protegidos aplican RBAC por usuario y `allowedWorkspaces` (claims JWT).
-- [ ] Frontend funciona sin `CORE_BFF_API_KEY`.
-- [ ] Core-keys quedan restringidas a uso M2M.
+- [x] Existe contrato de claims JWT (roles, allowedWorkspaces, defaultWorkspaceId).
+- [x] Core (con lógica de auth en switchboard/rbac) valida JWT por issuer/audience/JWKS.
+- [x] Endpoints `core/*` protegidos aplican RBAC por usuario y `allowedWorkspaces` (claims JWT).
+- [x] Frontend funciona sin `CORE_BFF_API_KEY`.
+- [x] Core-keys quedan restringidas a uso M2M.
 
 ## Contrato C0 cerrado (listo para implementacion)
 
@@ -73,7 +73,31 @@ Habilitar autenticacion de usuarios (JWT) para que un **hipotético front-end** 
 
 ## Siguiente accion
 
-Ejecutar en C1 la implementacion JWT end-to-end en `core/*` (issuer/audience/jwks), con compatibilidad temporal de claims legacy y pruebas de regresion RBAC como primer bloque de cierre para habilitar front-end.
+Mantener compatibilidad temporal de claims legacy solo durante migracion de emisores; retirar fallback cuando todos los IdP emitan claims canonicos.
+
+## Avance de implementacion C1 (2026-03-03)
+
+- `src/switchboard/rbac.js` ahora valida JWT con `issuer` + `audience` obligatorios y firma via JWKS (`SWITCHBOARD_AUTH_JWT_JWKS_URL`/`SWITCHBOARD_AUTH_JWT_JWKS`), manteniendo compatibilidad HS256 (`SWITCHBOARD_AUTH_JWT_SECRET`) para transicion.
+- Se mantiene compatibilidad temporal de claims legacy (`allowedAccounts`, `defaultAccountId`) mapeando a naming canonico (`allowedWorkspaces`, `defaultWorkspaceId`).
+- Se endurece scope en `core/*`: `POST /core/runtime/chat` requiere principal autenticado y valida permiso de chat por workspace del tenant.
+- Ajuste de consistencia de workspace en rutas core: lectura de tenant por `workspaceId` (con fallback legacy) y correccion del filtro en `GET /core/runs` para respetar `allowedWorkspaces`.
+- Pruebas de regresion RBAC/JWT en verde (`npm run switchboard:test`, 15/15), incluyendo caso RS256 con JWKS.
+- Validacion E2E en `src/api/test/core-c1.test.js`:
+  - acceso a `core/*` con JWT de usuario sin `CORE_BFF_API_KEY`,
+  - mantenimiento de operacion M2M via `core-key`.
+
+## Ampliacion C2 (2026-03-04): allowlist por email + RBAC por usuario
+
+- Se incorpora `auth_users` en registry (file/Neon) para definir acceso por email con perfil RBAC:
+  - `email`, `status`, `role`, `allowedAccounts`, `defaultAccountId`, `providers.google.sub`.
+- El login Google (`/api/auth/google/login`) resuelve el perfil por email desde `auth_users` y emite JWT con claims de rol/scope por usuario.
+- Se agregan endpoints de administracion:
+  - `GET /core/auth/users`
+  - `POST /core/auth/users`
+  - `PATCH /core/auth/users/:email`
+- Solo las cuentas maestras (`CORE_AUTH_MASTER_EMAILS`) pueden gestionar la allowlist/perfiles.
+- El fallback legacy por `CORE_AUTH_GOOGLE_ADMIN_EMAILS` queda opcional mediante `CORE_AUTH_LEGACY_EMAIL_ALLOWLIST_FALLBACK=true`.
+- `core/me` ahora incluye `email` del principal JWT para trazabilidad operativa.
 
 ## Artefactos tecnicos
 
@@ -87,3 +111,5 @@ Ejecutar en C1 la implementacion JWT end-to-end en `core/*` (issuer/audience/jwk
 - 2026-03-03: `validated` (contrato C0 de claims + parametros issuer/audience/jwks acordado).
 - 2026-03-03: `ready` (feature preparada para ejecucion C1; implementacion pendiente).
 - 2026-03-03: `in_progress` (prioridad C1 confirmada; ejecucion secuencial iniciada antes de F-06/F-05).
+- 2026-03-03: implementacion parcial C1 completada (JWT con JWKS + hardening RBAC en endpoints `core/*` + regresion automatizada en verde).
+- 2026-03-03: `done` (JWT end-to-end en `core/*`, validacion JWKS y cobertura E2E JWT + M2M).

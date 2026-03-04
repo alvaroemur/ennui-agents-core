@@ -1,38 +1,39 @@
 /**
- * Forward POST to {baseUrl}/core/runtime/chat.
+ * Forward POST to chat endpoint URL.
  */
 
 const FORWARD_TIMEOUT_MS = 60000;
 
 /**
- * @param {string} baseUrl
+ * @param {string} chatEndpointUrl
  * @param {string} body - raw JSON body to forward
  * @param {object} headers - optional extra headers
  * @returns {{ statusCode: number, body: string, parsed?: object, provider?: string|null, usage?: object|null } | { error: string, detail?: string, statusCode: number, errorCode?: string, downstreamStatusCode?: number, provider?: string|null, usage?: object|null }}
  */
-export async function forwardChat(baseUrl, body, headers = {}) {
-    const rawBaseUrl = typeof baseUrl === "string" ? baseUrl.trim() : "";
-    if (!rawBaseUrl) {
+export async function forwardChat(chatEndpointUrl, body, headers = {}) {
+    const rawUrl = typeof chatEndpointUrl === "string" ? chatEndpointUrl.trim() : "";
+    if (!rawUrl) {
         return {
             statusCode: 502,
             errorCode: "INVALID_DEPLOYMENT_URL",
             error: "Deployment unreachable",
-            detail: "Invalid baseUrl",
+            detail: "Invalid chat endpoint URL",
         };
     }
 
     let url;
     try {
-        url = new URL(
-            "/core/runtime/chat",
-            rawBaseUrl.endsWith("/") ? rawBaseUrl : `${rawBaseUrl}/`
-        ).toString();
+        const parsed = new URL(rawUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            throw new Error("Invalid protocol");
+        }
+        url = parsed.toString();
     } catch {
         return {
             statusCode: 502,
             errorCode: "INVALID_DEPLOYMENT_URL",
             error: "Deployment unreachable",
-            detail: "Invalid baseUrl",
+            detail: "Invalid chat endpoint URL",
         };
     }
 

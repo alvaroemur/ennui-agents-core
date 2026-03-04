@@ -5,13 +5,6 @@
       "name": "Inspiro Agents",
       "slug": "inspiro-agents",
       "status": "active"
-    },
-    {
-      "id": "platform",
-      "name": "Platform",
-      "slug": "platform",
-      "role": "admin-tecnico",
-      "status": "active"
     }
   ],
   "users": [
@@ -19,6 +12,40 @@
       "id": "admin-1",
       "email": "admin@inspiro.com",
       "name": "Admin User"
+    }
+  ],
+  "auth_users": [
+    {
+      "email": "alvaro.e.mur@gmail.com",
+      "status": "active",
+      "role": "admin-tecnico",
+      "allowedAccounts": [
+        "inspiro-agents"
+      ],
+      "defaultAccountId": "inspiro-agents",
+      "providers": {
+        "google": {
+          "sub": "110541977271768119924"
+        }
+      },
+      "createdAt": "2026-03-04T00:00:00.000Z",
+      "updatedAt": "2026-03-04T05:58:02.086Z",
+      "createdBy": "bootstrap",
+      "updatedBy": "google-login"
+    },
+    {
+      "email": "alvaro@inspiro.pe",
+      "status": "active",
+      "role": "operador-cuenta",
+      "allowedAccounts": [
+        "inspiro-agents"
+      ],
+      "defaultAccountId": "inspiro-agents",
+      "providers": {},
+      "createdAt": "2026-03-04T05:44:53.963Z",
+      "updatedAt": "2026-03-04T05:55:18.978Z",
+      "createdBy": "alvaro.e.mur@gmail.com",
+      "updatedBy": "alvaro.e.mur@gmail.com"
     }
   ],
   "workspace_memberships": [
@@ -48,7 +75,14 @@
     {
       "id": "aliantza-compras",
       "type": "chat",
-      "name": "Aliantza-Compras"
+      "name": "Aliantza-Compras",
+      "config": {
+        "id": "aliantza-compras",
+        "runtimeId": "consultor",
+        "chatbot": {
+          "systemPrompt": "Eres Aliantza Compras. Responde en espanol, breve y accionable."
+        }
+      }
     },
     {
       "id": "consultor-ia",
@@ -106,5 +140,179 @@
       "deploymentId": "core-local"
     }
   ],
-  "runs": []
+  "assignment_audit": [
+    {
+      "eventId": "evt_579c0c6c4d4c421e9cebfe5cc2f3a1af",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "fromDeploymentId": "core-local",
+      "toDeploymentId": "core-local",
+      "action": "promote",
+      "actor": {
+        "type": "user",
+        "subject": "110541977271768119924",
+        "role": "admin-tecnico"
+      },
+      "reason": null,
+      "result": "success",
+      "healthCheck": {
+        "url": "http://localhost:3000/health",
+        "statusCode": 200,
+        "latencyMs": 5,
+        "error": null
+      },
+      "timestamp": "2026-03-04T04:38:28.383Z"
+    },
+    {
+      "eventId": "evt_a8f92010dda44e09bacc309b6d9033a2",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "fromDeploymentId": "core-local",
+      "toDeploymentId": "core-local",
+      "action": "promote",
+      "actor": {
+        "type": "user",
+        "subject": "110541977271768119924",
+        "role": "admin-tecnico"
+      },
+      "reason": null,
+      "result": "success",
+      "healthCheck": {
+        "url": "http://localhost:3000/health",
+        "statusCode": 200,
+        "latencyMs": 7,
+        "error": null
+      },
+      "timestamp": "2026-03-04T04:38:17.853Z"
+    },
+    {
+      "eventId": "evt_e1b1cf5c067e4ed889c22e3cba8b4266",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "fromDeploymentId": "core-local",
+      "toDeploymentId": "core-local",
+      "action": "promote",
+      "actor": {
+        "type": "service",
+        "subject": "Platform Admin",
+        "role": "admin-tecnico"
+      },
+      "reason": "local smoke",
+      "result": "success",
+      "healthCheck": {
+        "url": "http://localhost:3000/health",
+        "statusCode": 200,
+        "latencyMs": 2,
+        "error": null
+      },
+      "timestamp": "2026-03-03T18:34:26.752Z"
+    }
+  ],
+  "runs": [
+    {
+      "runId": "run_7a63d438e81a4b3ab3f8a4a9bdbca9e1",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "deploymentId": "core-local",
+      "status": "success",
+      "startedAt": "2026-03-03T18:34:17.571Z",
+      "finishedAt": "2026-03-03T18:34:19.961Z",
+      "durationMs": 2390,
+      "provider": "openai",
+      "usage": {
+        "inputTokens": 265,
+        "outputTokens": 9
+      },
+      "error": null
+    },
+    {
+      "runId": "run_801e99ca44a341e685b840982d900ed5",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "deploymentId": "core-local",
+      "status": "success",
+      "startedAt": "2026-03-04T04:40:47.426Z",
+      "finishedAt": "2026-03-04T04:40:48.567Z",
+      "durationMs": 1141,
+      "provider": "openai",
+      "usage": {
+        "inputTokens": 250,
+        "outputTokens": 10
+      },
+      "error": null
+    },
+    {
+      "runId": "run_75dfb4fc8f944c00b20d1db72ddd626e",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "deploymentId": "core-local",
+      "status": "success",
+      "startedAt": "2026-03-04T04:45:59.744Z",
+      "finishedAt": "2026-03-04T04:46:01.326Z",
+      "durationMs": 1582,
+      "provider": "openai",
+      "usage": {
+        "inputTokens": 272,
+        "outputTokens": 11
+      },
+      "error": null
+    },
+    {
+      "runId": "run_484ac58521a94f8c9ed9437ff4117ff3",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "deploymentId": "core-local",
+      "status": "success",
+      "startedAt": "2026-03-04T04:46:16.763Z",
+      "finishedAt": "2026-03-04T04:46:17.467Z",
+      "durationMs": 704,
+      "provider": "openai",
+      "usage": {
+        "inputTokens": 296,
+        "outputTokens": 19
+      },
+      "error": null
+    },
+    {
+      "runId": "run_9ef979fd94704053a0ceed21a23251da",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "deploymentId": "core-local",
+      "status": "success",
+      "startedAt": "2026-03-04T04:47:36.014Z",
+      "finishedAt": "2026-03-04T04:47:38.072Z",
+      "durationMs": 2058,
+      "provider": "openai",
+      "usage": {
+        "inputTokens": 323,
+        "outputTokens": 27
+      },
+      "error": null
+    },
+    {
+      "runId": "run_bd43485c8774443a96348a0148c95dc4",
+      "workspaceId": "inspiro-agents",
+      "tenantId": "aliantza",
+      "agentId": "aliantza-compras",
+      "deploymentId": "core-local",
+      "status": "success",
+      "startedAt": "2026-03-04T04:50:43.980Z",
+      "finishedAt": "2026-03-04T04:50:45.479Z",
+      "durationMs": 1499,
+      "provider": "openai",
+      "usage": {
+        "inputTokens": 251,
+        "outputTokens": 9
+      },
+      "error": null
+    }
+  ]
 }

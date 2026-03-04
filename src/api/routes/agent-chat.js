@@ -4,16 +4,12 @@
 
 import { getRuntime, callLLM } from "../../index.js";
 import { loadAgentConfig, listAgentIds } from "../../agent-config/loader.js";
+import { getDefaultLlmApiKeys, hasAnyLlmApiKey } from "../../llm/api-keys.js";
 import { getFingerprintPrefix, loadCoreConfig } from "../../core-config/index.js";
 import {
     composeSystemPromptWithSignature,
     createExecutionFingerprint,
 } from "../../tracing/signature.js";
-
-function sanitizeApiKey(k) {
-    if (typeof k !== "string") return "";
-    return k.replace(/\r\n?|\n/g, "").trim();
-}
 
 /**
  * @param {import("http").IncomingMessage} req
@@ -32,7 +28,7 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
         return;
     }
 
-    const { agentId, tenantId, messages, appendSystemPrompt, preferredProvider, signature } = body;
+    const { agentId, tenantId, messages, appendSystemPrompt, preferredProvider, signature, responseMode } = body;
     if (!agentId || typeof agentId !== "string" || !agentId.trim()) {
         let allowed = [];
         try {
@@ -86,31 +82,61 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
         signatureSource: "unknown",
     };
 
-    const apiKeys = {
-        geminiKey: sanitizeApiKey(process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || ""),
-        openRouterKey: sanitizeApiKey(process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || ""),
-        openaiKey: sanitizeApiKey(process.env.OPENAI_API_KEY || process.env.OPENAI_KEY || ""),
-        geminiModel: "gemini-2.5-flash",
-        openRouterModel: "google/gemini-2.5-flash",
-        openaiModel: "gpt-4o-mini",
-        preferredProvider: preferredProvider || "openai",
-    };
+    let runtime;
+    let systemPrompt;
+    try {
+        runtime = await getRuntime(agentId, config);
+        systemPrompt = runtime.buildSystemPrompt(config);
+    } catch (e) {
+        jsonResponse(res, 502, { error: "Failed to resolve runtime", detail: e?.message || String(e) });
+        return;
+    }
+    if (appendSystemPrompt && typeof appendSystemPrompt === "string" && appendSystemPrompt.trim()) {
+        systemPrompt = systemPrompt + "\n\n" + appendSystemPrompt.trim();
+    }
 
-    if (!apiKeys.geminiKey && !apiKeys.openRouterKey && !apiKeys.openaiKey) {
+    // Runtime contract v2: return intent/reply and let core relay execute LLM centrally.
+    if (responseMode === "v2") {
+        let reply = null;
+        if (typeof runtime.buildReply === "function") {
+            reply = await runtime.buildReply({
+                config,
+                tenantId,
+                messages,
+                metadata: body?.metadata && typeof body.metadata === "object" ? body.metadata : {},
+            });
+        }
+        if (typeof reply !== "string" || !reply.trim()) {
+            // Backward-compatible default: return the same prompt context previously used for local LLM call.
+            reply = systemPrompt;
+        }
+        jsonResponse(res, 200, {
+            reply,
+            metadata: {
+                runtimeId:
+                    (typeof config?.runtimeId === "string" && config.runtimeId.trim()) ||
+                    agentId,
+            },
+            trace: {
+                agentRunId: runId,
+                fingerprint,
+            },
+        });
+        return;
+    }
+
+    const defaultApiKeys = getDefaultLlmApiKeys(preferredProvider);
+
+    if (!String(process.env.LLM_PROXY_URL || "").trim() && !hasAnyLlmApiKey(defaultApiKeys)) {
         jsonResponse(res, 503, { error: "API keys not configured" });
         return;
     }
 
     try {
-        const runtime = await getRuntime(agentId, config);
-        let systemPrompt = runtime.buildSystemPrompt(config);
-        if (appendSystemPrompt && typeof appendSystemPrompt === "string" && appendSystemPrompt.trim()) {
-            systemPrompt = systemPrompt + "\n\n" + appendSystemPrompt.trim();
-        }
         const signatureResult = composeSystemPromptWithSignature({
             basePrompt: systemPrompt,
             customSignature: signature,
-            apiKeys,
+            apiKeys: defaultApiKeys,
             env,
             runId,
             fingerprint,
@@ -122,7 +148,6 @@ export async function handleAgentChat(req, res, { body: rawBody, CORS_HEADERS, j
         const result = await callLLM({
             systemPrompt,
             contents: messages,
-            apiKeys,
             trace,
         });
 

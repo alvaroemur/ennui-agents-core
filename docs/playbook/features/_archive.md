@@ -52,3 +52,21 @@ Al archivar una feature, se debe preservar la siguiente información:
 - **Fechas**: Creado 2026-03-02, Cerrado 2026-03-02
 - **Resumen**: Modelo de dominio completo en DB (Neon/Postgres): workspaces, users, workspace_memberships, tenants, agents, deployments, assignments, runs; nomenclatura workspaces en todo el stack.
 - **Criterio**: Esquema en switchboard/src/registry.js, seed Inspiro Agents/Aliantza/Inspiro Agents Web, endpoints core adaptados.
+
+### F-202603-08-switchboard-jwt-user-auth-frontend-gateway
+- **Estado final**: `done`
+- **Fechas**: Creado 2026-03-01, Cerrado 2026-03-03
+- **Resumen**: JWT de usuario para hipotético front-end en core/*: validación issuer/audience/JWKS, RBAC por allowedWorkspaces; core-keys solo M2M.
+- **Criterio**: JWT end-to-end en core/*, validación JWKS, E2E sin core-key en cliente; pruebas en core-c1.test.js y switchboard:test.
+
+### F-202603-06-core-bff-agent-proxy
+- **Estado final**: `done`
+- **Fechas**: Creado 2026-03-01, Cerrado 2026-03-03
+- **Resumen**: BFF centraliza LLM: runtime devuelve solo «qué decir» (contrato v2 reply); core ejecuta llm-proxy y responde al cliente; fallback legacy activo.
+- **Criterio**: POST /core/relay/chat con responseMode v2, core centraliza LLM, trazabilidad; pruebas E2E en core-c1.test.js.
+
+### F-202603-05-switchboard-assignment-promotion-audit
+- **Estado final**: `done`
+- **Fechas**: Creado 2026-03-01, Cerrado 2026-03-03
+- **Resumen**: Promoción y rollback de assignments con auditoría: from/to, actor, health-check previo, rollback al deployment anterior; persistencia en DB y fallback.
+- **Criterio**: Endpoints promote/rollback/audit en core, eventos auditables, health-check obligatorio; pruebas en core-c1.test.js.

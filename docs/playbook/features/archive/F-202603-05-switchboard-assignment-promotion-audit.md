@@ -2,7 +2,7 @@
 
 ## Meta
 
-- Estado: `ready`
+- Estado: `done`
 - Owner: alvaromur
 - Fecha creacion: 2026-03-01
 - Ultima actualizacion: 2026-03-03
@@ -17,10 +17,22 @@ Para operar en vivo, un hipotético front-end o operador necesita poder cambiar 
 
 ## Definition of done
 
-- [ ] Cada cambio de assignment guarda `from -> to`, actor y timestamp.
-- [ ] Antes de promover, el deployment destino valida `GET /health`.
-- [ ] Existe endpoint de rollback al deployment anterior inmediato.
-- [ ] Auditoria por cuenta consultable por rango de fechas.
+- [x] Cada cambio de assignment guarda `from -> to`, actor y timestamp.
+- [x] Antes de promover, el deployment destino valida `GET /health`.
+- [x] Existe endpoint de rollback al deployment anterior inmediato.
+- [x] Auditoria por cuenta consultable por rango de fechas.
+
+## Implementacion C1 (2026-03-03)
+
+- Se implementan endpoints en core:
+  - `POST /core/workspaces/:workspaceId/assignments/promote`
+  - `POST /core/workspaces/:workspaceId/assignments/rollback`
+  - `GET /core/workspaces/:workspaceId/assignments/audit`
+- Promocion y rollback registran evento auditable con `eventId`, `fromDeploymentId`, `toDeploymentId`, actor, motivo, `healthCheck`, resultado y `timestamp`.
+- `promote` exige health-check previo (`GET /health`) del deployment destino.
+- `rollback` toma como objetivo el deployment anterior inmediato desde la ultima transicion exitosa auditada.
+- Persistencia de auditoria disponible en DB (`switchboard_assignment_audit`) y en fallback file (`assignment_audit` en `registry.json`).
+- Cobertura automatizada en `src/api/test/core-c1.test.js` para `promote/rollback/audit` y persistencia en fallback.
 
 ## Contrato C0 cerrado (listo para implementacion)
 
@@ -79,7 +91,7 @@ Nota: los paths quedan congelados para implementacion C1; ajustes menores de nam
 
 ## Siguiente accion
 
-Iniciar `in_progress` en C1 implementando endpoints, persistencia de auditoria y rollback seguro con pruebas de health-check.
+Definir politica de retencion/archivado de `assignment_audit` para volumen alto y observabilidad operativa en C2.
 
 ## Historial de estado
 
@@ -87,3 +99,5 @@ Iniciar `in_progress` en C1 implementando endpoints, persistencia de auditoria y
 - 2026-03-03: `candidate` (alcance tecnico de promotion/rollback priorizado para C0).
 - 2026-03-03: `validated` (modelo de evento de auditoria y superficie API objetivo cerrados).
 - 2026-03-03: `ready` (feature lista para ejecucion C1; implementacion pendiente).
+- 2026-03-03: `in_progress` (implementacion de endpoints y persistencia de auditoria).
+- 2026-03-03: `done` (promote/rollback/audit en core con health-check y pruebas E2E).

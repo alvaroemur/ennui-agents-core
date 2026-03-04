@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,9 +20,12 @@ const ENV_KEYS = [
     "SWITCHBOARD_CORE_KEYS",
     "SWITCHBOARD_KEYS_PATH",
     "SWITCHBOARD_AUTH_JWT_ENABLED",
+    "SWITCHBOARD_AUTH_JWT_ONLY",
     "SWITCHBOARD_AUTH_JWT_SECRET",
     "SWITCHBOARD_AUTH_JWT_ISSUER",
     "SWITCHBOARD_AUTH_JWT_AUDIENCE",
+    "SWITCHBOARD_AUTH_JWT_JWKS_URL",
+    "SWITCHBOARD_AUTH_JWT_JWKS",
 ];
 
 function signHs256Jwt(payload, secret) {
@@ -31,6 +35,21 @@ function signHs256Jwt(payload, secret) {
     const content = `${encodedHeader}.${encodedPayload}`;
     const signature = createHmac("sha256", secret).update(content).digest("base64url");
     return `${content}.${signature}`;
+}
+
+async function signRs256Jwt(payload) {
+    const { privateKey, publicKey } = await generateKeyPair("RS256");
+    const publicJwk = await exportJWK(publicKey);
+    publicJwk.kid = "rbac-test-kid";
+    publicJwk.use = "sig";
+    publicJwk.alg = "RS256";
+    const token = await new SignJWT(payload)
+        .setProtectedHeader({ alg: "RS256", typ: "JWT", kid: "rbac-test-kid" })
+        .sign(privateKey);
+    return {
+        token,
+        jwks: { keys: [publicJwk] },
+    };
 }
 
 function snapshotEnv() {
@@ -189,6 +208,7 @@ test("authenticateRequest accepts x-api-key and returns normalized principal", a
                     subject: "gw",
                     keyId: "key-1",
                     keyLabel: "gw",
+                    email: null,
                 });
             }
         );
@@ -214,6 +234,7 @@ test("authenticateRequest accepts valid user JWT when JWT auth is enabled", asyn
                 iss: "core-auth",
                 aud: "core-switchboard",
                 sub: "user-1",
+                email: "user-1@example.com",
                 role: "admin-tecnico",
                 iat: now - 10,
                 exp: now + 300,
@@ -227,6 +248,66 @@ test("authenticateRequest accepts valid user JWT when JWT auth is enabled", asyn
         assert.equal(auth.enabled, true);
         assert.equal(auth.principal?.role, "admin-tecnico");
         assert.equal(auth.principal?.subject, "user-1");
+        assert.equal(auth.principal?.email, "user-1@example.com");
+    } finally {
+        restoreEnv(env);
+    }
+});
+
+test("authenticateRequest rejects core-key when JWT-only mode is enabled", async () => {
+    const env = snapshotEnv();
+    try {
+        process.env.SWITCHBOARD_RBAC_ENABLED = "true";
+        process.env.SWITCHBOARD_AUTH_JWT_ENABLED = "true";
+        process.env.SWITCHBOARD_AUTH_JWT_ONLY = "true";
+        process.env.SWITCHBOARD_AUTH_JWT_SECRET = "test-secret";
+        process.env.SWITCHBOARD_AUTH_JWT_ISSUER = "core-auth";
+        process.env.SWITCHBOARD_AUTH_JWT_AUDIENCE = "core-switchboard";
+        process.env.SWITCHBOARD_CORE_KEYS = JSON.stringify([{ key: "k1", workspaceId: "acc-1" }]);
+        delete process.env.SWITCHBOARD_KEYS_PATH;
+
+        const auth = await authenticateRequest(
+            { headers: { authorization: "Bearer k1" } },
+            { getWorkspaceById: async () => ({ id: "acc-1", role: "operador-cuenta", status: "active" }) }
+        );
+        assert.equal(auth.enabled, true);
+        assert.equal(auth.principal, null);
+        assert.equal(auth.reason, "jwt-required");
+    } finally {
+        restoreEnv(env);
+    }
+});
+
+test("authenticateRequest accepts RS256 JWT with JWKS and legacy workspace claims", async () => {
+    const env = snapshotEnv();
+    try {
+        const now = Math.floor(Date.now() / 1000);
+        const { token, jwks } = await signRs256Jwt({
+            iss: "core-auth",
+            aud: "core-switchboard",
+            sub: "user-rs256",
+            roles: ["operador-cuenta"],
+            allowedAccounts: ["acc-a", "acc-b"],
+            defaultAccountId: "acc-b",
+            iat: now - 10,
+            exp: now + 300,
+        });
+        process.env.SWITCHBOARD_RBAC_ENABLED = "true";
+        process.env.SWITCHBOARD_AUTH_JWT_ENABLED = "true";
+        process.env.SWITCHBOARD_AUTH_JWT_ISSUER = "core-auth";
+        process.env.SWITCHBOARD_AUTH_JWT_AUDIENCE = "core-switchboard";
+        process.env.SWITCHBOARD_AUTH_JWT_JWKS = JSON.stringify(jwks);
+        delete process.env.SWITCHBOARD_AUTH_JWT_SECRET;
+
+        const auth = await authenticateRequest(
+            { headers: { authorization: `Bearer ${token}` } },
+            {}
+        );
+        assert.equal(auth.enabled, true);
+        assert.equal(auth.principal?.role, "operador-cuenta");
+        assert.equal(auth.principal?.subject, "user-rs256");
+        assert.equal(auth.principal?.workspaceId, "acc-b");
+        assert.deepEqual(auth.principal?.allowedWorkspaces, ["acc-a", "acc-b"]);
     } finally {
         restoreEnv(env);
     }

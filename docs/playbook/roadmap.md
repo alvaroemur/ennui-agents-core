@@ -60,9 +60,9 @@ Documento vivo para cerrar `core` como backend del sistema de gestion de agentes
 |---|---|---|---|
 | API publica unificada `core/*` | Hecho | Endurecer versionado y compatibilidad minima | `core-contract-v1.md` |
 | Dominio y persistencia | Hecho (DB + fallback) | Politica explicita de uso de fallback en prod | F-202603-10 (done) |
-| Authn/Authz base | Parcial-alto | Cerrar JWT end-to-end para front-end | F-202603-08 |
-| BFF central de trafico LLM | Parcial | Completar inversion de flujo runtime->core | F-202603-06 |
-| Promotion/rollback de assignments | Bajo | Implementar auditoria + rollback seguro | F-202603-05 |
+| Authn/Authz base | Hecho C1 | Mantener rollout de claims canonicos en IdP | F-202603-08 (done) |
+| BFF central de trafico LLM | Hecho C1 (con fallback legacy) | Retirar fallback runtime legacy al completar migracion | F-202603-06 (done) |
+| Promotion/rollback de assignments | Hecho C1 | Definir retencion/archivado de auditoria | F-202603-05 (done) |
 | Observabilidad de costo/uso | Parcial tecnico | Definir minimo operable para salida cloud | backlog `state.md` |
 | Salida cloud | Parcial | Ingress real + checklist release + smoke E2E | plan activo `state.md` |
 
@@ -113,7 +113,7 @@ Resultado:
 - F-08, F-06 y F-05 cerradas en `ready`.
 - Gate C0 cumplido.
 
-### Fase C1 - Cierre funcional de backend (activa, 2-3 semanas)
+### Fase C1 - Cierre funcional de backend (cerrada)
 
 Objetivo: dejar Core listo para operar como backend de gestion.
 
@@ -126,6 +126,12 @@ Entregables:
 Gate de salida:
 - F-08 y F-05 en `done`; F-06 en `validated` o `done` con rollout gradual.
 
+Resultado de cierre:
+- F-08 en `done` (JWT end-to-end en `core/*`, validacion JWKS y pruebas E2E JWT sin core-key).
+- F-06 en `done` (runtime v2 `reply`, LLM centralizado en core relay, fallback legacy temporal).
+- F-05 en `done` (promote/rollback con health-check y auditoria consultable).
+- Tests de regresion C1 en verde (`switchboard:test` y `api:test`).
+
 Plan acelerado recomendado (para acabar pronto):
 - Ola 1 (dias 1-3): ejecutar F-08 end-to-end (JWT + RBAC por workspace) y cerrar pruebas de regresion auth.
 - Ola 2 (dias 4-7): ejecutar F-06 con flag de migracion y validacion de contrato runtime v2.
@@ -133,7 +139,7 @@ Plan acelerado recomendado (para acabar pronto):
 - Regla operativa: no abrir alcance nuevo en C1; cualquier extra pasa al backlog C2.
 - Orden confirmado de ejecucion: secuencial (`F-08` -> `F-06` -> `F-05`) para reducir riesgo de cambios simultaneos sobre el flujo de chat.
 
-### Fase C2 - Hardening de salida cloud (1-2 semanas, posterior a C1)
+### Fase C2 - Hardening de salida cloud (activa)
 
 Objetivo: reducir riesgo de operacion real.
 
@@ -151,7 +157,7 @@ Gate de salida:
 - Politica de fallback: permitido en dev/staging; en prod solo como degradacion de emergencia, con alerta y retorno a DB como objetivo inmediato.
 - Observabilidad minima de salida (nivel B): `runId`, estado, latencia, provider, tokens y costo estimado, mas SLO inicial para `POST /core/relay/chat` y `GET /core/runs/:runId` con alertas base.
 - Freeze de contrato: `core/*` v1.1 se congela al cierre de C1.
-- Resultado: sin decisiones ejecutivas bloqueantes para avanzar en C1.
+- Resultado: sin decisiones ejecutivas bloqueantes para avanzar en C2.
 
 ## Cadencia de seguimiento para cierre rapido
 

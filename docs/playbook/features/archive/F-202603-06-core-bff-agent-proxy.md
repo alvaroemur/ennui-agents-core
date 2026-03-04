@@ -2,7 +2,7 @@
 
 ## Meta
 
-- Estado: `ready`
+- Estado: `done`
 - Owner: alvaromur
 - Fecha creacion: 2026-03-01
 - Ultima actualizacion: 2026-03-03
@@ -14,7 +14,7 @@ Evolucionar el BFF (core) para que sea **core** quien realice la llamada a LLM y
 ## Estado respecto a F-202603-09 (ya hecho)
 
 - **Entregado por F-202603-09**: Superficie pública única `core/*`; endpoint canónico de chat **`POST /core/relay/chat`**; core resuelve workspace/tenant/agent → deployment y reenvía el request al runtime; runs y trazabilidad. El cliente ya no usa `POST /api/chat` en switchboard (eliminado); usa `POST /core/relay/chat`.
-- **Pendiente (alcance de esta feature)**: Que el **BFF (core)** sea quien llame al LLM y los agentes (runtime) solo devuelvan el contenido a decir. Implica: (1) contrato del runtime que devuelva solo «qué decir»; (2) core invoca agente, luego core llama a `callLLM`/llm-proxy y devuelve la respuesta; (3) monitoreo y masking centralizados en core.
+- **Cerrado en esta feature**: El **BFF (core)** ahora centraliza LLM para contrato runtime v2: runtime responde `reply`, core ejecuta `callLLM`/llm-proxy y devuelve la respuesta final con trazabilidad.
 
 ## Contexto
 
@@ -36,10 +36,18 @@ Evolucionar el BFF (core) para que sea **core** quien realice la llamada a LLM y
 ## Definition of done
 
 - [x] Existe endpoint canónico de chat en core (`POST /core/relay/chat`) y proxy a deployment (entregado en F-202603-09).
-- [ ] Contrato v2 (o actualización) que define responsabilidades del BFF: core invoca agente (HTTP), recibe «qué decir», core llama a LLM (`llm-proxy`), aplica monitoreo/masking y responde al cliente.
-- [ ] Runtime (agente) devuelve solo el contenido a decir; core realiza la llamada a LLM y envía la respuesta al cliente.
-- [ ] Agentes internos y externos se invocan por HTTP (mismo contrato); core no contiene lógica experta por agente.
-- [ ] Runs y trazabilidad se mantienen; el BFF sigue registrando runs al hacer proxy e invocación a LLM.
+- [x] Contrato v2 (o actualización) que define responsabilidades del BFF: core invoca agente (HTTP), recibe «qué decir», core llama a LLM (`llm-proxy`), aplica monitoreo/masking y responde al cliente.
+- [x] Runtime (agente) devuelve solo el contenido a decir; core realiza la llamada a LLM y envía la respuesta al cliente.
+- [x] Agentes internos y externos se invocan por HTTP (mismo contrato); core no contiene lógica experta por agente.
+- [x] Runs y trazabilidad se mantienen; el BFF sigue registrando runs al hacer proxy e invocación a LLM.
+
+## Implementacion C1 (2026-03-03)
+
+- `src/api/routes/agent-chat.js` incorpora `responseMode: "v2"` para contrato runtime: devuelve `reply` + `trace.agentRunId` sin ejecutar LLM.
+- `src/api/server.js` (`POST /core/relay/chat`) ahora solicita `responseMode: "v2"` al runtime y centraliza la llamada LLM en core usando `llm-proxy`.
+- Compatibilidad de migracion activa: si un runtime legacy devuelve `text` final, core mantiene fallback sin romper deployments existentes.
+- Se preserva trazabilidad (`runId`) y se completa metadata (`fingerprint`, `agentRunId`) en respuesta.
+- Cobertura automatizada en `src/api/test/core-c1.test.js` para el flujo relay v2 end-to-end.
 
 ## Contrato C0 cerrado (listo para implementacion)
 
@@ -77,7 +85,7 @@ Evolucionar el BFF (core) para que sea **core** quien realice la llamada a LLM y
 
 ## Siguiente accion
 
-Iniciar `in_progress` en C1 implementando el flujo v2 en core/runtime con bandera de migracion y pruebas de regresion de runs + RBAC.
+Monitorear rollout de runtimes legacy a v2 y retirar fallback una vez no existan deployments activos en modo legacy.
 
 ## Historial de estado
 
@@ -86,3 +94,5 @@ Iniciar `in_progress` en C1 implementando el flujo v2 en core/runtime con bander
 - 2026-03-02: Alcance revisado: F-09 ya entregó endpoint canónico y proxy; pendiente que core sea quien llame al LLM y agentes solo devuelvan «qué decir».
 - 2026-03-03: `validated` (contrato C0 core->runtime y responsabilidades del BFF cerradas).
 - 2026-03-03: `ready` (feature lista para ejecucion C1; implementacion pendiente).
+- 2026-03-03: `in_progress` (arranque de implementacion C1 del flujo runtime v2).
+- 2026-03-03: `done` (core centraliza LLM en `relay`, runtime v2 devuelve `reply`, fallback legacy activo y pruebas E2E en verde).

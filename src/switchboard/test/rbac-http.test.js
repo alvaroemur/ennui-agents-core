@@ -54,7 +54,7 @@ async function startSwitchboard() {
     const seed = {
         workspaces: [
             { id: "inspiro-comercial", role: "operador-cuenta", status: "active" },
-            { id: "platform", role: "admin-tecnico", status: "active" },
+            { id: "inspiro-agents", role: "admin-tecnico", status: "active" },
         ],
         agents: [],
         deployments: [],
@@ -74,7 +74,7 @@ async function startSwitchboard() {
             SWITCHBOARD_KEYS_PATH: missingKeysPath,
             SWITCHBOARD_CORE_KEYS: JSON.stringify([
                 { id: "k-op", label: "operator", key: "op-key", workspaceId: "inspiro-comercial", status: "active" },
-                { id: "k-admin", label: "admin", key: "adm-key", workspaceId: "platform", status: "active" },
+                { id: "k-admin", label: "admin", key: "adm-key", workspaceId: "inspiro-agents", status: "active" },
             ]),
         },
         stdio: ["ignore", "pipe", "pipe"],
@@ -122,7 +122,7 @@ test("GET /api/runs requires auth when RBAC is enabled", async () => {
 });
 
 test("GET /api/runs denies operador for out-of-scope account", async () => {
-    const response = await fetch(`${runtime.baseUrl}/api/runs?workspaceId=platform`, {
+    const response = await fetch(`${runtime.baseUrl}/api/runs?workspaceId=inspiro-agents`, {
         headers: { Authorization: "Bearer op-key" },
     });
     assert.equal(response.status, 403);

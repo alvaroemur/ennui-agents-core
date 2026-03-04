@@ -1,6 +1,6 @@
 # Switchboard
 
-Módulo **interno** de control: registro (workspaces, tenants, agentes, deployments, assignments, runs), RBAC por workspace y centro de control (UI). Vive en `src/switchboard/`. La API pública de chat está en **core**: `POST /core/relay/chat` (ver `docs/playbook/core-contract-v1.md`). Switchboard expone solo la API de registro y status cuando se ejecuta en modo standalone (puerto 3010); integrado en core, las rutas públicas son `core/*`.
+Módulo **interno** de control: registro (workspaces, tenants, agentes, deployments, assignments, runs), RBAC por workspace y centro de control (UI). Vive en `src/switchboard/`. La API pública de chat está en **core**: `POST /core/relay/chat` (ver `docs/core-contract-v1.md`). Switchboard expone solo la API de registro y status cuando se ejecuta en modo standalone (puerto 3010); integrado en core, las rutas públicas son `core/*`.
 
 ## Endpoints (modo standalone, puerto 3010)
 
@@ -32,7 +32,7 @@ Chat público (orquestado por workspace/tenant/agent): usar **core** en puerto 3
 
 Nota de resiliencia: si la DB no está disponible, se usa fallback de archivo/estado en memoria.
 
-Auth: `Authorization: Bearer <core-key>` o `X-API-Key` (M2M); o `Authorization: Bearer <user-jwt>` si JWT está habilitado (`SWITCHBOARD_AUTH_JWT_ENABLED`, `SWITCHBOARD_AUTH_JWT_SECRET`, etc.).
+Auth: `Authorization: Bearer <core-key>` o `X-API-Key` (M2M); o `Authorization: Bearer <user-jwt>` si JWT está habilitado (`SWITCHBOARD_AUTH_JWT_ENABLED` + `SWITCHBOARD_AUTH_JWT_ISSUER` + `SWITCHBOARD_AUTH_JWT_AUDIENCE` + JWKS recomendado con `SWITCHBOARD_AUTH_JWT_JWKS_URL`/`SWITCHBOARD_AUTH_JWT_JWKS`; `SWITCHBOARD_AUTH_JWT_SECRET` queda como compatibilidad HS256).
 
 ## Desarrollo local
 

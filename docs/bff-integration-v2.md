@@ -22,10 +22,9 @@ Definir un contrato tecnico para que un hipotético cliente (p. ej. SPA) consuma
 ### Request
 
 - Method: `POST`
-- Path: `/api/bff/chat`
+- Path: `/core/relay/chat`
 - Headers requeridos:
-  - `Authorization: Bearer <core-key>`
-  - `X-Account-Id: <accountId>`
+  - `Authorization: Bearer <user-jwt>` (UI) o `Authorization: Bearer <core-key>` (M2M)
   - `Content-Type: application/json`
 - Headers recomendados:
   - `X-Request-Id: <uuid>`
@@ -76,8 +75,8 @@ Body esperado:
 | HTTP | error | Causa |
 |---|---|---|
 | 400 | `bad_request` | payload invalido o uso de naming legacy (`clientId`) |
-| 401 | `unauthorized` | core-key ausente o invalida |
-| 403 | `forbidden` | rol sin permiso o `accountId` fuera de scope |
+| 401 | `unauthorized` | JWT/core-key ausente o invalido |
+| 403 | `forbidden` | rol sin permiso o `workspaceId` fuera de scope |
 | 404 | `not_found` | assignment/deployment no resuelto |
 | 502 | `downstream_error` | fallo al invocar agente/core |
 | 500 | `internal_error` | error no controlado |
@@ -89,7 +88,7 @@ Body esperado:
    - `CORE_BFF_CHAT_PATH` (p. ej. `/core/relay/chat`)
    - `CORE_BFF_TIMEOUT_MS`
 2. Crear cliente HTTP unico para BFF con:
-   - inyeccion de `Authorization` y `X-Account-Id`,
+   - inyeccion de `Authorization`,
    - propagacion opcional de `X-Request-Id`,
    - lectura de `X-Run-Id` en respuestas.
 3. Adaptar capa de parseo para aceptar shape v1/v2 mientras dure la migracion.

@@ -2,7 +2,7 @@
 
 Paquete base para agentes: runtimes, llamadas LLM, auth por core-key (M2M) o JWT de usuario, persistence, API HTTP unificada bajo `core/*` y CLI.
 
-La API pública canónica está bajo el prefijo **`/core/*`** (contrato v1). El módulo **switchboard** es interno (control plane: workspaces, tenants, agentes, asignaciones, runs). Ver `docs/playbook/state.md` y `docs/playbook/core-contract-v1.md`.
+La API pública canónica está bajo el prefijo **`/core/*`** (contrato v1). El módulo **switchboard** es interno (control plane: workspaces, tenants, agentes, asignaciones, runs). Ver `docs/playbook/state.md` y `docs/core-contract-v1.md`.
 
 ## Contenido
 
@@ -50,7 +50,7 @@ npm run start
 
 ### API pública canónica (`core/*`)
 
-Autenticación: `Authorization: Bearer <core-key>` o `X-API-Key` (M2M), o `Authorization: Bearer <user-jwt>`. Scope por workspace. Contrato: `docs/playbook/core-contract-v1.md`.
+Autenticación: `Authorization: Bearer <core-key>` o `X-API-Key` (M2M), o `Authorization: Bearer <user-jwt>`. Scope por workspace. Contrato: `docs/core-contract-v1.md`.
 
 | Método y ruta | Descripción |
 |---------------|-------------|
@@ -59,6 +59,9 @@ Autenticación: `Authorization: Bearer <core-key>` o `X-API-Key` (M2M), o `Autho
 | `GET /core/workspaces` | Lista de workspaces del principal |
 | `GET /core/workspaces/:workspaceId/tenants` | Tenants del workspace |
 | `GET /core/tenants/:tenantId/agents` | Agentes asignados al tenant |
+| `POST /core/workspaces/:workspaceId/assignments/promote` | Promociona assignment con health-check y auditoría |
+| `POST /core/workspaces/:workspaceId/assignments/rollback` | Rollback al deployment previo inmediato con auditoría |
+| `GET /core/workspaces/:workspaceId/assignments/audit` | Auditoría de cambios de assignments por rango/filtros |
 | `GET /core/runs` | Lista de runs (filtros: workspaceId, tenantId, agentId, etc.) |
 | `GET /core/runs/:runId` | Detalle de un run |
 | `POST /core/relay/chat` | Chat orquestado: resuelve tenant+agent → deployment y reenvía al runtime |
@@ -83,8 +86,13 @@ Response incluye `text`, `provider`, `usage` y `trace` (p. ej. `runId`, `fingerp
 
 - `GET /health`, `GET /` — health legacy
 - `GET /api/config`, `GET /api/config/core`, `GET /api/config/subaccounts`, `GET /api/config/agents/:agentId/config.json` — configuración
-- `POST /core/runtime/chat` — endpoint interno de ejecución de runtime (llamado por relay/deployments)
+- `POST /core/runtime/chat` — endpoint interno de ejecución de runtime (llamado por relay/deployments). Si implementas un agente externo (p. ej. Aliantza-Compras), ver **`docs/agent-runtime-contract.md`**.
 - `GET /api/auth/google/config`, `GET /api/auth/google/url`, `POST /api/auth/google/login` — OAuth Google para JWT de usuario
+
+Tests rápidos:
+
+- `npm run switchboard:test` — RBAC y regresión de control-plane.
+- `npm run api:test` — integración C1 (`relay` v2, JWT, promotion/rollback/audit).
 
 Comportamiento de firma en chat (relay y `/core/runtime/chat`): si el cliente envía `signature` se usa; si no, se respeta la del agente o se inyecta una por defecto. Se añade metadata con `fingerprint` (configurable con `CORE_FINGERPRINT_PREFIX` o `.core-config/core.json` → `tracing.fingerprintPrefix`). Ver `docs/core-signature.md`.
 
@@ -113,14 +121,22 @@ Control plane (RBAC y registro, módulo interno switchboard):
 - `SWITCHBOARD_KEYS_PATH` (default en módulo: `src/switchboard/data/core-keys.json`) — archivo de core-keys por workspace
 - `SWITCHBOARD_DATABASE_URL` (opcional) — Postgres/Neon; si existe, el registro usa DB; si no, fallback a `registry.json`
 - `REGISTRY_PATH` (default: `./src/switchboard/data/registry.json`) — registro cuando no hay DB
+- `CORE_ASSIGNMENT_HEALTHCHECK_TIMEOUT_MS` (default: `5000`) — timeout de health-check para `promote`/`rollback`
 
 JWT de usuario (opcional, para `core/me` y scope por workspace):
 
-- `SWITCHBOARD_AUTH_JWT_ENABLED`, `SWITCHBOARD_AUTH_JWT_SECRET`, `SWITCHBOARD_AUTH_JWT_ISSUER`, `SWITCHBOARD_AUTH_JWT_AUDIENCE`
+- `SWITCHBOARD_AUTH_JWT_ENABLED`, `SWITCHBOARD_AUTH_JWT_ISSUER`, `SWITCHBOARD_AUTH_JWT_AUDIENCE`
+- Validación de firma: `SWITCHBOARD_AUTH_JWT_JWKS_URL` o `SWITCHBOARD_AUTH_JWT_JWKS` (recomendado), o `SWITCHBOARD_AUTH_JWT_SECRET` (HS256 legacy)
 
 Google OAuth (login de usuario + emisión de JWT interno):
 
-- `CORE_AUTH_GOOGLE_ENABLED`, `CORE_AUTH_GOOGLE_CLIENT_ID`, `CORE_AUTH_GOOGLE_CLIENT_SECRET`, `CORE_AUTH_GOOGLE_REDIRECT_URI`, `CORE_AUTH_GOOGLE_SCOPES`, `CORE_AUTH_GOOGLE_ALLOWED_HOSTED_DOMAINS`, `CORE_AUTH_GOOGLE_ADMIN_EMAILS`, `CORE_AUTH_JWT_SECRET`, etc. (ver `.env.example`)
+- `CORE_AUTH_GOOGLE_ENABLED`, `CORE_AUTH_GOOGLE_CLIENT_ID`, `CORE_AUTH_GOOGLE_CLIENT_SECRET`, `CORE_AUTH_GOOGLE_REDIRECT_URI`, `CORE_AUTH_GOOGLE_SCOPES`, `CORE_AUTH_GOOGLE_ALLOWED_HOSTED_DOMAINS`, `CORE_AUTH_MASTER_EMAILS`, `CORE_AUTH_JWT_SECRET`, etc. (ver `.env.example`)
+- Allowlist + perfil RBAC por usuario se administra con:
+  - `GET /core/auth/users`
+  - `POST /core/auth/users`
+  - `PATCH /core/auth/users/:email`
+- Estos endpoints están restringidos a cuentas maestras (`CORE_AUTH_MASTER_EMAILS`).
+- Fallback legacy por variables `CORE_AUTH_GOOGLE_ADMIN_EMAILS` / `CORE_AUTH_GOOGLE_ALLOW_ANY_ADMIN` se puede activar con `CORE_AUTH_LEGACY_EMAIL_ALLOWLIST_FALLBACK=true`.
 
 LLM providers (al menos uno):
 

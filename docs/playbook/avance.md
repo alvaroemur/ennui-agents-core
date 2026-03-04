@@ -250,3 +250,56 @@
   - `F-202603-06` y `F-202603-05` quedan `ready` para ejecucion secuencial posterior,
   - backlog ajustado para implementar (no redefinir) fallback y observabilidad ya acordados.
 - `F-202603-08-switchboard-jwt-user-auth-frontend-gateway` se actualiza a `in_progress` para habilitar primero consumo frontend por JWT en `core/*`.
+- Implementacion C1 parcial de `F-202603-08`:
+  - `src/switchboard/rbac.js` incorpora validacion JWT con `issuer`/`audience` obligatorios y firma via JWKS (`SWITCHBOARD_AUTH_JWT_JWKS_URL` o `SWITCHBOARD_AUTH_JWT_JWKS`), con compatibilidad HS256 (`SWITCHBOARD_AUTH_JWT_SECRET`) para transicion.
+  - Compatibilidad temporal de claims legacy (`allowedAccounts`, `defaultAccountId`) mantenida y mapeada a naming canonico (`allowedWorkspaces`, `defaultWorkspaceId`).
+  - Hardening de `core/*` en `src/api/server.js`: `POST /core/runtime/chat` ahora exige principal autenticado y permiso por workspace del tenant; correcciones de scope en `/core/me`, `/core/tenants/:tenantId/agents` y `GET /core/runs`.
+  - Regresion automatizada validada con `npm run switchboard:test` (15/15), incluyendo nuevo test RS256 + JWKS en `src/switchboard/test/rbac.test.js`.
+- Actualizacion de configuracion/documentacion para JWT:
+  - `.env.example` incluye variables de JWKS y deja `SWITCHBOARD_AUTH_JWT_SECRET` como modo legacy opcional.
+  - `README.md` de raiz documenta estrategia recomendada de validacion JWT por JWKS.
+- Cierre tecnico C1 (implementacion + pruebas):
+  - `src/api/routes/agent-chat.js` incorpora contrato runtime v2 (`responseMode: "v2"`) para devolver `reply` y `trace.agentRunId` sin ejecutar LLM.
+  - `src/api/server.js` centraliza LLM en `POST /core/relay/chat` cuando runtime devuelve `reply`; mantiene fallback legacy para deployments que aun responden `text`.
+  - `src/api/server.js` agrega endpoints C1 de assignments:
+    - `POST /core/workspaces/:workspaceId/assignments/promote`,
+    - `POST /core/workspaces/:workspaceId/assignments/rollback`,
+    - `GET /core/workspaces/:workspaceId/assignments/audit`.
+  - Promotion/rollback registran eventos auditables (`from/to`, actor, reason, result, healthCheck, timestamp) y ejecutan health-check previo por deployment.
+  - `src/switchboard/registry.js` extiende persistencia con `assignment_audit` en fallback JSON y tabla DB `switchboard_assignment_audit`.
+  - Hardening de seguridad en relay:
+    - validacion de pertenencia `tenant -> workspace`,
+    - propagacion de `Authorization`/`X-API-Key`/`X-Request-Id` al runtime deployment.
+- Pruebas automatizadas nuevas y regresion:
+  - nueva suite `src/api/test/core-c1.test.js` (relay v2, JWT sin core-key, promote/rollback/audit, persistencia audit en fallback),
+  - script `npm run api:test` en `package.json`,
+  - validacion local: `npm run switchboard:test` (15/15) y `npm run api:test` (4/4) en verde.
+- Actualizacion de artefactos y contratos:
+  - `docs/core-contract-v1.md` pasa a `v1.1` (`accepted`) con endpoints de assignment audit/promote/rollback y semantica runtime v2 + fallback legacy.
+  - `docs/frontend-jwt-access-plan.md` se alinea a naming canonico (`allowedWorkspaces`, `defaultWorkspaceId`).
+  - `docs/bff-integration-v2.md` se alinea al path canonico `POST /core/relay/chat`.
+  - `README.md` y `src/switchboard/README.md` actualizados con C1 (JWT JWKS, endpoints nuevos, script `api:test`).
+  - `.env.example` agrega `CORE_ASSIGNMENT_HEALTHCHECK_TIMEOUT_MS`.
+- Estado de features y plan:
+  - `F-202603-08`, `F-202603-06` y `F-202603-05` actualizadas a `done`.
+  - `state.md` y `roadmap.md` alineados a cierre de C1 y cambio de foco operativo a Fase C2.
+
+## 2026-03-04
+
+- Archive de features C1 cerradas: F-202603-08, F-202603-06 y F-202603-05 movidas a `docs/playbook/features/archive/` y resúmenes consolidados en `docs/playbook/features/_archive.md`.
+- `state.md`: chequeo `archive-closed-features` cumplido; Chequeos pendientes queda vacío.
+- Alineación playbook-repo: aplicadas correcciones del análisis `docs/playbook/playbook-repo-alignment.md`:
+  - `state.md`: ruta de tests RBAC actualizada a `src/switchboard/test`; mención a CI cambiada a «pendiente» (no existe `.github/` en el repo).
+  - `architecture.md`: flujo de chat actualizado a v1.1/v2 (runtime devuelve reply, core llama LLM); diagrama de componentes y secuencia Mermaid alineados a v2; formato core-keys con `workspaceId`; matriz RBAC con `GET/POST/PATCH /core/auth/users` (solo master); sección F-06 reescrita como «Estado actual del BFF (F-06 cerrada)» con referencia a `features/archive/`.
+  - `src/switchboard/README.md`: referencia al contrato corregida a `docs/core-contract-v1.md`.
+  - `docs/core-contract-v1.md`: añadida subsección «Administración (usuarios permitidos)» con `GET/POST/PATCH /core/auth/users` (solo cuentas maestras).
+- Ideate: Traceability Live Backend. Se define el contrato de datos para soportar Active Connections, Live Inbox, Kanban y Run Inspector en la interfaz. Se registra en `docs/traceability-live-requirements.md` y se crea la feature `F-202603-11` en `inbox` para futura implementación en fases.
+- Implementación de `F-202603-11-traceability-live-backend`:
+  - Se modificó `registry.js` para añadir `updatedAt` y `traceId` a `RunRecord`.
+  - Se amplió el soporte de estatus de runs (`idle`, `needs_prompt`, `running`, `completed`, `failed`, `cancelled`, `timeout`) asegurando retrocompatibilidad (`success` -> `completed`, `error` -> `failed`).
+  - Se creó tabla `switchboard_trace_events` en Neon y fallback en memoria para persistir eventos de cambio de estatus.
+  - Se actualizó `GET /core/runs` para filtrar por `updatedAfter`.
+  - Se modificó `GET /core/runs/:runId` para anexar el historial de eventos (`timeline`).
+  - Se implementaron los endpoints `GET /core/trace/events` (con cursor) y `GET /core/trace/active-connections`.
+  - Las pruebas `switchboard:test` y `api:test` fueron actualizadas y verificadas.
+  - La feature `F-202603-11` avanza a `done`.

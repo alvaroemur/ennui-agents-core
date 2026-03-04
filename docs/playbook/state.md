@@ -16,19 +16,21 @@ Mantener y evolucionar `ennui-agents-core` como paquete base para agentes con:
 - Decidido: mantener `switchboard` como modulo interno separado del runtime, con superficie publica unificada bajo `core`.
 - API publica canonica: `core/*` (health, me, workspaces, tenants, agents, runs, `POST /core/relay/chat`). Chat orquestado solo en core; switchboard sin endpoint de chat publico.
 - Features activas:
-  - Features `in_progress`:
-    - `F-202603-08-switchboard-jwt-user-auth-frontend-gateway` (foco inmediato para habilitar front-end con JWT sobre `core/*`).
-  - Features `ready` para ejecucion secuencial C1:
-    - `F-202603-06-core-bff-agent-proxy`
-    - `F-202603-05-switchboard-assignment-promotion-audit`
+  - Features `candidate`:
+    - `F-202603-07-core-llm-adapter-pi-ai-spike` (comparativa final y decision go/no-go pendiente para iteracion posterior).
 - Features cerradas:
+  - `F-202603-11-traceability-live-backend` (`done`)
   - `F-202603-01-core-switchboard-contract-v1` (`done`)
   - `F-202603-03-switchboard-rbac-multitenant-basico` (`done`)
   - `F-202603-04-switchboard-runs-traceability-minima` (`done`)
   - `F-202603-09-core-api-publica-unificada-relay` (`done`)
   - `F-202603-10-core-db-domain-completo` (`done`)
+  - `F-202603-08-switchboard-jwt-user-auth-frontend-gateway` (`done`, archivada)
+  - `F-202603-06-core-bff-agent-proxy` (`done`, archivada)
+  - `F-202603-05-switchboard-assignment-promotion-audit` (`done`, archivada)
+- Todas las features cerradas listadas arriba estan en `features/archive/` y consolidadas en `features/_archive.md`.
 - `F-202603-02-switchboard-persistence-domain-db` queda postergada (`dropped`) a favor de F-202603-10.
-- Persistencia: esquema DB completo en Neon/Postgres (`workspaces`, `users`, `workspace_memberships`, `tenants`, `agents`, `deployments`, `assignments`, `runs`); si no hay DB, fallback a `registry.json`. Configuracion de agentes consolidada en DB; el repo no usa `config.json` por agente.
+- Persistencia: esquema DB completo en Neon/Postgres (`workspaces`, `users`, `workspace_memberships`, `tenants`, `agents`, `deployments`, `assignments`, `assignment_audit`, `runs`); si no hay DB, fallback a `registry.json`. Configuracion de agentes consolidada en DB; el repo no usa `config.json` por agente.
 - RBAC v2 con scope por workspace:
   - core-key o JWT de usuario identifica al principal; rol y `allowedWorkspaces` se resuelven desde registro/claims.
   - inputs legacy `clientId` rechazados (`400`).
@@ -45,24 +47,28 @@ Mantener y evolucionar `ennui-agents-core` como paquete base para agentes con:
   - retiro de legacy inmediato (sin fase dual) y seed inicial con agentes mock.
   - artefacto canonico: `docs/core-contract-v1.md`.
 - Hardening post-RBAC iniciado:
-  - suite automatizada de tests RBAC en `switchboard/test`,
-  - workflow CI dedicado para ejecutar tests de RBAC en cambios de `switchboard`,
+  - suite automatizada de tests RBAC en `src/switchboard/test`,
+  - pendiente: workflow CI para tests de RBAC en cambios de switchboard,
   - runbook operativo de rotacion segura de `core-keys` en `docs/core-keys-rotation-runbook.md`.
 
-## Plan activo (alineado a `roadmap.md` v0.2 / inicio de Fase C1)
+## Plan activo (alineado a `roadmap.md` v0.2 / Fase C2)
 
-1. Ejecutar `F-202603-08` (foco actual) en `in_progress`:
-   - implementar validacion JWT end-to-end (`issuer`, `audience`, `jwks`) en `core/*`,
-   - aplicar RBAC por `allowedWorkspaces` en todos los endpoints protegidos.
-2. Al cerrar `F-202603-08`, ejecutar `F-202603-06` en `in_progress`:
-   - implementar flujo runtime v2 (agente devuelve «que decir»),
-   - centralizar llamada LLM y masking/monitoreo en core.
-3. Al estabilizar `F-202603-06`, ejecutar `F-202603-05` en `in_progress`:
-   - implementar endpoints de `promote`/`rollback` y auditoria,
-   - forzar health-check previo en promotion y rollback inmediato seguro.
-4. Gate de salida C1:
-   - `F-202603-08` y `F-202603-05` en `done`,
-   - `F-202603-06` en `validated` o `done` con rollout gradual.
+1. Cerrar paquete de salida cloud:
+   - ingress real por entorno,
+   - smoke E2E autenticado post-deploy.
+2. Endurecer observabilidad minima nivel B:
+   - consulta base por run (`runId`, estado, latencia, provider, tokens, costo estimado),
+   - SLO inicial y alertas base para `POST /core/relay/chat` y `GET /core/runs/:runId`.
+3. Operacion segura de persistencia:
+   - formalizar/automatizar politica de fallback en prod (solo emergencia),
+   - runbook de retorno prioritario a DB ante degradacion.
+4. Gate de salida C2:
+   - checklist release por entorno validado,
+   - trazabilidad completa por run en smoke cloud.
+
+## Chequeos pendientes
+
+- (ninguno).
 
 ## Restricciones
 
@@ -77,6 +83,7 @@ Mantener y evolucionar `ennui-agents-core` como paquete base para agentes con:
 - Mantener `switchboard` como modulo interno de control con superficie publica unificada bajo `core`.
 - **Consumidores de la API**: No existe un producto «gateway» en el repo; las referencias a front-end o cliente en el playbook aluden a un **hipotético front-end** que podria consumir la API `core/*` (p. ej. una SPA que gestione workspaces/tenants/agentes con JWT o core-key M2M).
 - Orden C1 confirmado: ejecucion secuencial `F-08` -> `F-06` -> `F-05`.
+- C1 cerrado tecnicamente (F-08, F-06, F-05 en `done`; pruebas E2E de C1 en verde).
 - Politica de fallback confirmada: en prod solo degradacion de emergencia (con alerta y retorno a DB como objetivo inmediato).
 - Observabilidad minima acordada para salida cloud: nivel B (`runId`, estado, latencia, provider, tokens, costo estimado + SLO/alertas base).
 - Freeze del contrato `core/*` v1.1 fijado al cierre de C1.

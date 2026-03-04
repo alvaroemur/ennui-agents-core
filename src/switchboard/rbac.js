@@ -11,9 +11,9 @@
  */
 
 import { existsSync, readFileSync } from "fs";
-import { createHmac, timingSafeEqual } from "crypto";
 import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
+import { createLocalJWKSet, createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 
 const VALID_ROLES = new Set(["admin-tecnico", "operador-cuenta", "lector-cuenta"]);
 const DEFAULT_KEYS_PATH = resolve(
@@ -21,6 +21,9 @@ const DEFAULT_KEYS_PATH = resolve(
     "data",
     "core-keys.json"
 );
+const textEncoder = new TextEncoder();
+const remoteJwksCache = new Map();
+const localJwksCache = new Map();
 
 function parseBool(value, fallback = false) {
     if (value == null) return fallback;
@@ -97,6 +100,10 @@ function isJwtEnabled() {
     return parseBool(process.env.SWITCHBOARD_AUTH_JWT_ENABLED, false);
 }
 
+function isJwtOnlyMode() {
+    return parseBool(process.env.SWITCHBOARD_AUTH_JWT_ONLY, false);
+}
+
 function getJwtSecret() {
     const configured = typeof process.env.SWITCHBOARD_AUTH_JWT_SECRET === "string"
         ? process.env.SWITCHBOARD_AUTH_JWT_SECRET.trim()
@@ -118,48 +125,101 @@ function getJwtAudience() {
     return value || null;
 }
 
+function getJwtJwksRawConfig() {
+    const directUrl = typeof process.env.SWITCHBOARD_AUTH_JWT_JWKS_URL === "string"
+        ? process.env.SWITCHBOARD_AUTH_JWT_JWKS_URL.trim()
+        : "";
+    if (directUrl) return directUrl;
+    const generic = typeof process.env.SWITCHBOARD_AUTH_JWT_JWKS === "string"
+        ? process.env.SWITCHBOARD_AUTH_JWT_JWKS.trim()
+        : "";
+    return generic || "";
+}
+
+function looksLikeJson(raw) {
+    if (!raw) return false;
+    return raw.startsWith("{") || raw.startsWith("[");
+}
+
+function buildLocalJwksResolver(raw) {
+    if (!raw) return null;
+    const cacheKey = `json:${raw}`;
+    if (localJwksCache.has(cacheKey)) return localJwksCache.get(cacheKey);
+    try {
+        const parsed = JSON.parse(raw);
+        const jwks = Array.isArray(parsed) ? { keys: parsed } : parsed;
+        if (!jwks || typeof jwks !== "object" || !Array.isArray(jwks.keys)) return null;
+        const resolver = createLocalJWKSet(jwks);
+        localJwksCache.set(cacheKey, resolver);
+        return resolver;
+    } catch (_) {
+        return null;
+    }
+}
+
+function buildRemoteJwksResolver(raw) {
+    if (!raw) return null;
+    let url;
+    try {
+        url = new URL(raw);
+    } catch (_) {
+        return null;
+    }
+    const cacheKey = `url:${url.toString()}`;
+    if (remoteJwksCache.has(cacheKey)) return remoteJwksCache.get(cacheKey);
+    const resolver = createRemoteJWKSet(url);
+    remoteJwksCache.set(cacheKey, resolver);
+    return resolver;
+}
+
+function getJwtJwksResolver() {
+    const raw = getJwtJwksRawConfig();
+    if (!raw) return null;
+    if (looksLikeJson(raw)) {
+        return buildLocalJwksResolver(raw);
+    }
+    return buildRemoteJwksResolver(raw);
+}
+
+function getJwtValidationOptions() {
+    const issuer = getJwtIssuer();
+    const audience = getJwtAudience();
+    if (!issuer || !audience) return null;
+    return { issuer, audience };
+}
+
 function isLikelyJwt(token) {
     if (typeof token !== "string") return false;
     return token.split(".").length === 3;
 }
 
-function parseJsonBase64Url(value) {
+async function verifyJwtWithSecret(token, options) {
+    const secret = getJwtSecret();
+    if (!secret) return null;
     try {
-        const decoded = Buffer.from(value, "base64url").toString("utf8");
-        return JSON.parse(decoded);
+        const { payload } = await jwtVerify(token, textEncoder.encode(secret), {
+            issuer: options.issuer,
+            audience: options.audience,
+            algorithms: ["HS256"],
+        });
+        return payload;
     } catch (_) {
         return null;
     }
 }
 
-function verifyJwtHs256(token, secret) {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const [encodedHeader, encodedPayload, encodedSignature] = parts;
-    const header = parseJsonBase64Url(encodedHeader);
-    const payload = parseJsonBase64Url(encodedPayload);
-    if (!header || !payload) return null;
-    if (header.alg !== "HS256") return null;
-
-    const expected = createHmac("sha256", secret)
-        .update(`${encodedHeader}.${encodedPayload}`)
-        .digest();
-    let provided;
+async function verifyJwtWithJwks(token, options) {
+    const resolver = getJwtJwksResolver();
+    if (!resolver) return null;
     try {
-        provided = Buffer.from(encodedSignature, "base64url");
+        const { payload } = await jwtVerify(token, resolver, {
+            issuer: options.issuer,
+            audience: options.audience,
+        });
+        return payload;
     } catch (_) {
         return null;
     }
-    if (provided.length !== expected.length) return null;
-    if (!timingSafeEqual(provided, expected)) return null;
-    return payload;
-}
-
-function hasAudience(claim, expectedAudience) {
-    if (!expectedAudience) return true;
-    if (Array.isArray(claim)) return claim.includes(expectedAudience);
-    if (typeof claim === "string") return claim === expectedAudience;
-    return false;
 }
 
 function normalizeAllowedAccounts(value) {
@@ -182,29 +242,38 @@ function resolveRoleFromClaims(payload) {
     return "";
 }
 
-function authenticateJwtPrincipal(token) {
+function resolveEmailFromClaims(payload) {
+    if (typeof payload?.email !== "string") return null;
+    const normalized = payload.email.trim().toLowerCase();
+    return normalized || null;
+}
+
+async function authenticateJwtPrincipal(token) {
     if (!isJwtEnabled()) return null;
     if (!isLikelyJwt(token)) return null;
-    const secret = getJwtSecret();
-    if (!secret) return null;
-
-    const payload = verifyJwtHs256(token, secret);
-    if (!payload) return null;
-
-    const now = Math.floor(Date.now() / 1000);
-    const exp = Number(payload?.exp);
-    if (!Number.isFinite(exp) || exp <= now) return null;
-    if (payload?.nbf != null) {
-        const nbf = Number(payload.nbf);
-        if (Number.isFinite(nbf) && nbf > now) return null;
+    const options = getJwtValidationOptions();
+    if (!options) return null;
+    let alg = "";
+    try {
+        const header = decodeProtectedHeader(token);
+        alg = typeof header?.alg === "string" ? header.alg : "";
+    } catch (_) {
+        return null;
     }
 
-    const issuer = getJwtIssuer();
-    if (issuer && payload?.iss !== issuer) return null;
-    if (!hasAudience(payload?.aud, getJwtAudience())) return null;
+    let payload = null;
+    if (alg === "HS256") {
+        payload = await verifyJwtWithSecret(token, options);
+        if (!payload) payload = await verifyJwtWithJwks(token, options);
+    } else {
+        payload = await verifyJwtWithJwks(token, options);
+        if (!payload) payload = await verifyJwtWithSecret(token, options);
+    }
+    if (!payload) return null;
 
     const role = resolveRoleFromClaims(payload);
     if (!role) return null;
+    const email = resolveEmailFromClaims(payload);
 
     const allowedWorkspaces = normalizeAllowedAccounts(payload?.allowedWorkspaces || payload?.allowedAccounts);
     const defaultWorkspaceId = typeof payload?.defaultWorkspaceId === "string"
@@ -222,6 +291,7 @@ function authenticateJwtPrincipal(token) {
         keyId: null,
         keyLabel: "jwt-user",
         allowedWorkspaces,
+        email,
     };
 }
 
@@ -232,7 +302,7 @@ export function isRbacEnabled() {
 /**
  * @param {import("http").IncomingMessage} req
  * @param {{ getWorkspaceById?: (workspaceId: string) => Promise<any> }} [deps]
- * @returns {Promise<{ enabled: boolean, principal: null | { role: string, workspaceId: string | null, subject: string | null, keyId: string | null, keyLabel: string | null, allowedWorkspaces?: string[] }, reason?: string }>}
+ * @returns {Promise<{ enabled: boolean, principal: null | { role: string, workspaceId: string | null, subject: string | null, keyId: string | null, keyLabel: string | null, email?: string | null, allowedWorkspaces?: string[] }, reason?: string }>}
  */
 export async function authenticateRequest(req, deps = {}) {
     if (!isRbacEnabled()) {
@@ -244,6 +314,7 @@ export async function authenticateRequest(req, deps = {}) {
                 subject: "rbac-disabled",
                 keyId: null,
                 keyLabel: "rbac-disabled",
+                email: null,
             },
         };
     }
@@ -251,11 +322,19 @@ export async function authenticateRequest(req, deps = {}) {
     const key = getBearerKey(req);
     if (!key) return { enabled: true, principal: null, reason: "missing-key" };
 
-    const jwtPrincipal = authenticateJwtPrincipal(key);
+    const jwtPrincipal = await authenticateJwtPrincipal(key);
     if (jwtPrincipal) {
         return {
             enabled: true,
             principal: jwtPrincipal,
+        };
+    }
+
+    if (isJwtOnlyMode()) {
+        return {
+            enabled: true,
+            principal: null,
+            reason: isJwtEnabled() ? "jwt-required" : "jwt-auth-disabled",
         };
     }
 
@@ -289,6 +368,7 @@ export async function authenticateRequest(req, deps = {}) {
             subject: match.label || match.keyId || match.workspaceId,
             keyId: match.keyId || null,
             keyLabel: match.label || null,
+            email: null,
         },
     };
 }
